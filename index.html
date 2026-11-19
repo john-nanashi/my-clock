@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>自分用時計</title>
+<style>
+:root{--fg:#fff;--accent:#8ad1ff;--panel:rgba(20,22,28,.78)}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#000;color:var(--fg);overflow:hidden;font-family:"Noto Sans JP","Segoe UI",sans-serif}
+#bg{position:fixed;inset:0;overflow:hidden;background:#0b0d12;transition:filter .3s}
+#bg .wrap{position:absolute;left:50%;top:50%;width:max(100vw,177.78vh);height:max(56.25vw,100vh);transform:translate(-50%,-50%);pointer-events:none}
+#bg iframe,#yt{width:100%;height:100%;border:0;pointer-events:none}
+#veil{position:fixed;inset:0;background:#000;pointer-events:none}
+#stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;gap:4vw;padding:2vw}
+#clockbox{text-align:center;text-shadow:0 2px 20px rgba(0,0,0,.45)}
+#time{font-size:calc(var(--size,100)*.16vw + 8vh);font-weight:var(--weight,300);line-height:1;font-variant-numeric:tabular-nums;letter-spacing:.02em;cursor:pointer}
+#time small{font-size:.35em;margin-left:.15em}
+#date{margin-top:1.2vh;font-size:calc(var(--size,100)*.012vw + 2.2vh);opacity:.9;display:flex;gap:1em;justify-content:center;align-items:center}
+#poworld{margin-top:2vh;font-size:2.2vh;opacity:.85}
+#cal{background:var(--panel);border-radius:14px;padding:14px 16px;min-width:260px;backdrop-filter:blur(8px)}
+#cal h4{margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;font-weight:500}
+#cal h4 button{background:none;border:0;color:var(--fg);cursor:pointer;font-size:16px;opacity:.7}
+#cal table{width:100%;border-collapse:collapse;text-align:center;font-size:13px}
+#cal td,#cal th{padding:5px 2px;border-radius:6px}
+#cal th{opacity:.6;font-weight:400}
+.sun,.hol{color:#ff8a8a}.sat{color:#8ab8ff}
+.today{background:var(--accent);color:#000!important;font-weight:700}
+#holname{font-size:12px;height:16px;margin-top:6px;opacity:.85;text-align:center}
+#toolbar{position:fixed;top:12px;right:12px;display:flex;gap:8px;transition:opacity .4s}
+.tb{width:40px;height:40px;border-radius:50%;border:0;background:var(--panel);color:var(--fg);cursor:pointer;font-size:18px;backdrop-filter:blur(8px)}
+.tb:hover{background:rgba(60,64,76,.9)}
+.idle #toolbar,.idle #mini{opacity:0;pointer-events:none}.idle{cursor:none}
+.panel{position:fixed;top:60px;right:12px;width:340px;max-height:calc(100vh - 80px);overflow:auto;background:var(--panel);backdrop-filter:blur(12px);border-radius:14px;padding:14px 16px;display:none;font-size:13px}
+.panel.open{display:block}
+.panel h3{margin:0 0 10px;font-size:14px;font-weight:600}
+.row{display:flex;align-items:center;gap:8px;margin:8px 0}
+.row label{flex:0 0 96px;opacity:.8}
+.row input[type=range]{flex:1}
+.row input[type=text],.row select,.row input[type=number]{flex:1;min-width:0;background:rgba(255,255,255,.1);color:var(--fg);border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:5px 7px}
+.row select option{color:#000}
+.btn{background:var(--accent);color:#000;border:0;border-radius:8px;padding:6px 12px;cursor:pointer;font-weight:600}
+.btn.ghost{background:rgba(255,255,255,.15);color:var(--fg)}
+#mini{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:10px;align-items:center;background:var(--panel);padding:8px 14px;border-radius:30px;backdrop-filter:blur(8px);transition:opacity .4s;font-size:13px}
+#mini input[type=range]{width:110px}
+#mini button{background:none;border:0;color:var(--fg);cursor:pointer;font-size:18px}
+.big{font-size:42px;text-align:center;font-variant-numeric:tabular-nums;margin:6px 0}
+.hist{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.hist a{color:var(--fg);opacity:.8;cursor:pointer;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist a:hover{opacity:1;text-decoration:underline}
+.hide{display:none!important}
+@media(max-width:900px){#cal{display:none}}
+</style>
+</head>
+<body>
+<div id="bg"><div class="wrap"><div id="yt"></div></div></div>
+<div id="veil"></div>
+
+<div id="stage">
+  <div id="cal">
+    <h4><button id="calPrev">◀</button><span id="calTitle"></span><button id="calNext">▶</button></h4>
+    <table id="calTable"></table>
+    <div id="holname"></div>
+  </div>
+  <div id="clockbox">
+    <div id="time">00:00</div>
+    <div id="date"><span id="dateText"></span><span id="weather"></span></div>
+    <div id="poworld"></div>
+  </div>
+</div>
+
+<div id="toolbar">
+  <button class="tb" data-p="pBg" title="背景(YouTube)">▶</button>
+  <button class="tb" data-p="pTimer" title="タイマー">⏱</button>
+  <button class="tb" data-p="pSet" title="表示設定">⚙</button>
+  <button class="tb" id="fsBtn" title="全画面 (F)">⛶</button>
+</div>
+
+<div id="mini" class="hide">
+  <button id="playBtn" title="再生/停止">⏸</button>
+  <button id="muteBtn" title="ミュート">🔊</button>
+  <input type="range" id="miniVol" min="0" max="100">
+  <button id="nextBtn" title="次へ">⏭</button>
+</div>
+
+<!-- YouTube背景 -->
+<div class="panel" id="pBg">
+  <h3>YouTube背景</h3>
+  <div class="row"><input type="text" id="ytUrl" placeholder="動画 or プレイリストのURL"><button class="btn" id="ytGo">再生</button></div>
+  <div class="row"><label>透かし具合</label><input type="range" id="ytOpacity" min="5" max="100"><span id="ytOpacityV"></span></div>
+  <div class="row"><label>ぼかし</label><input type="range" id="ytBlur" min="0" max="20"></div>
+  <div class="row"><label>音量</label><input type="range" id="ytVol" min="0" max="100"></div>
+  <div class="row"><label>背景の明るさ</label><select id="ytTone"><option value="dark">暗い（黒ベース）</option><option value="light">明るい（白ベース）</option></select></div>
+  <div class="row"><button class="btn ghost" id="ytStop">停止して背景を消す</button></div>
+  <div class="hist" id="hist"></div>
+  <p style="opacity:.6;font-size:12px">※ 埋め込み不可の動画は再生されません。</p>
+</div>
+
+<!-- タイマー -->
+<div class="panel" id="pTimer">
+  <h3>ポモドーロ</h3>
+  <div class="big" id="poTime">25:00</div>
+  <div style="text-align:center;opacity:.8" id="poPhase">作業</div>
+  <div class="row" style="justify-content:center">
+    <button class="btn" id="poStart">開始</button><button class="btn ghost" id="poReset">リセット</button><button class="btn ghost" id="poSkip">スキップ</button>
+  </div>
+  <div class="row"><label>作業(分)</label><input type="number" id="poWork" min="1" max="180"></div>
+  <div class="row"><label>短休憩(分)</label><input type="number" id="poShort" min="1" max="60"></div>
+  <div class="row"><label>長休憩(分)</label><input type="number" id="poLong" min="1" max="120"></div>
+  <div class="row" id="poToday" style="opacity:.8"></div>
+  <hr style="border-color:rgba(255,255,255,.15)">
+  <h3>カウントダウン</h3>
+  <div class="big" id="cdTime">05:00</div>
+  <div class="row"><input type="number" id="cdMin" min="1" max="999" value="5"><span>分</span>
+    <button class="btn" id="cdStart">開始</button><button class="btn ghost" id="cdReset">リセット</button></div>
+  <hr style="border-color:rgba(255,255,255,.15)">
+  <h3>ストップウォッチ</h3>
+  <div class="big" id="swTime">00:00.00</div>
+  <div class="row" style="justify-content:center"><button class="btn" id="swStart">開始</button><button class="btn ghost" id="swLap">ラップ</button><button class="btn ghost" id="swReset">リセット</button></div>
+  <div id="swLaps" style="font-size:12px;opacity:.8;text-align:center"></div>
+</div>
+
+<!-- 設定 -->
+<div class="panel" id="pSet">
+  <h3>表示設定</h3>
+  <div class="row"><label>書体</label><select id="sFont">
+    <option value="'Jost',sans-serif">Jost</option>
+    <option value="'Manrope',sans-serif">Manrope</option>
+    <option value="'Poppins',sans-serif">Poppins</option>
+    <option value="'Playfair Display',serif">Playfair Display</option>
+    <option value="'Zen Maru Gothic',sans-serif">Zen Maru Gothic</option>
+    <option value="'M PLUS Rounded 1c',sans-serif">M PLUS Rounded 1c</option>
+    <option value="'Shippori Mincho',serif">Shippori Mincho</option>
+    <option value="'DotGothic16',sans-serif">DotGothic16</option>
+    <option value="'Noto Sans JP',sans-serif">Noto Sans JP</option>
+    <option value="Arial,sans-serif">Arial</option></select></div>
+  <div class="row"><label>文字サイズ</label><input type="range" id="sSize" min="40" max="200"></div>
+  <div class="row"><label>太さ</label><input type="range" id="sWeight" min="100" max="900" step="100"></div>
+  <div class="row"><label>文字色</label><input type="color" id="sColor"><button class="btn ghost" id="sColorAuto">白に戻す</button></div>
+  <div class="row"><label>秒を表示</label><input type="checkbox" id="sSec"></div>
+  <div class="row"><label>12時間表記</label><input type="checkbox" id="s12"></div>
+  <div class="row"><label>カレンダー</label><input type="checkbox" id="sCal"></div>
+  <div class="row"><label>天気</label><input type="checkbox" id="sWx"></div>
+  <div class="row"><label>タイムゾーン</label><select id="sTz"></select></div>
+  <div class="row"><label>天気の場所</label><select id="sLoc"><option value="geo">現在地</option><option value="35.68,139.76">東京</option><option value="34.69,135.50">大阪</option><option value="35.18,136.91">名古屋</option><option value="43.06,141.35">札幌</option><option value="33.59,130.40">福岡</option></select></div>
+  <div class="row"><label>スリープ防止</label><input type="checkbox" id="sWake"></div>
+</div>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+const $=id=>document.getElementById(id);
+const DEF={font:"'Jost',sans-serif",size:100,weight:300,color:'#ffffff',sec:false,h12:false,cal:true,wx:true,tz:'auto',loc:'geo',wake:false,
+  ytUrl:'',ytOpacity:35,ytBlur:0,ytVol:40,ytTone:'dark',hist:[],po:{work:25,short:5,long:15,done:0,day:''}};
+let S;
+try{S=Object.assign({},DEF,JSON.parse(localStorage.getItem('clockS')||'{}'))}catch(e){S={...DEF}}
+S.po=Object.assign({},DEF.po,S.po||{});
+const save=()=>{try{localStorage.setItem('clockS',JSON.stringify(S))}catch(e){}};
+
+/* ---------- Fonts ---------- */
+(function(){const f=['Jost:wght@100..900','Manrope:wght@200..800','Poppins:wght@100;300;400;600;700','Playfair+Display:wght@400..900','Zen+Maru+Gothic:wght@300;400;500;700;900','M+PLUS+Rounded+1c:wght@100;300;400;500;700;800','Shippori+Mincho:wght@400;500;600;700;800','DotGothic16','Noto+Sans+JP:wght@100..900'];
+const l=document.createElement('link');l.rel='stylesheet';l.href='https://fonts.googleapis.com/css2?'+f.map(x=>'family='+x).join('&')+'&display=swap';document.head.appendChild(l)})();
+
+/* ---------- Clock ---------- */
+const tzs=['auto','Asia/Tokyo','America/New_York','America/Los_Angeles','Europe/London','Europe/Paris','Asia/Seoul','Asia/Shanghai','Asia/Singapore','Asia/Dubai','Australia/Sydney','Pacific/Honolulu'];
+$('sTz').innerHTML=tzs.map(t=>`<option value="${t}">${t==='auto'?'自動':t}</option>`).join('');
+const pad=n=>String(n).padStart(2,'0');
+function nowParts(){
+  const d=new Date();
+  if(S.tz==='auto')return {y:d.getFullYear(),m:d.getMonth()+1,d:d.getDate(),w:d.getDay(),h:d.getHours(),mi:d.getMinutes(),s:d.getSeconds()};
+  const p=new Intl.DateTimeFormat('en-US',{timeZone:S.tz,hourCycle:'h23',year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',weekday:'short'}).formatToParts(d);
+  const g=t=>p.find(x=>x.type===t).value;
+  return {y:+g('year'),m:+g('month'),d:+g('day'),w:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(g('weekday')),h:+g('hour')%24,mi:+g('minute'),s:+g('second')};
+}
+const WD=['日','月','火','水','木','金','土'];
+let lastDay='';
+function tick(){
+  const n=nowParts();let h=n.h,suf='';
+  if(S.h12){suf=h>=12?'PM':'AM';h=h%12||12}
+  $('time').innerHTML=(S.h12?h:pad(h))+':'+pad(n.mi)+(S.sec?':'+pad(n.s):'')+(suf?`<small>${suf}</small>`:'');
+  $('dateText').textContent=`${n.y}年${n.m}月${n.d}日（${WD[n.w]}）`;
+  const k=n.y+'-'+n.m+'-'+n.d;
+  if(k!==lastDay){lastDay=k;renderCal();if(S.po.day!==k){S.po.day=k;S.po.done=0;save();renderPoToday()}}
+  document.title=pad(n.h)+':'+pad(n.mi)+' 自分用時計';
+}
+setInterval(tick,250);
+
+/* ---------- Holidays ---------- */
+const holCache={};
+function holidays(y){
+  if(holCache[y])return holCache[y];
+  const H={};const add=(m,d,n)=>H[m+'-'+d]=n;
+  const nth=(m,n)=>{const f=new Date(y,m-1,1).getDay();return 1+((8-f)%7)+(n-1)*7};
+  add(1,1,'元日');add(2,11,'建国記念の日');if(y>=2020)add(2,23,'天皇誕生日');add(4,29,'昭和の日');add(5,3,'憲法記念日');add(5,4,'みどりの日');add(5,5,'こどもの日');
+  if(y>=2016)add(8,11,'山の日');add(11,3,'文化の日');add(11,23,'勤労感謝の日');
+  add(1,nth(1,2),'成人の日');add(7,nth(7,3),'海の日');add(9,nth(9,3),'敬老の日');add(10,nth(10,2),'スポーツの日');
+  const sp=Math.floor(20.8431+0.242194*(y-1980)-Math.floor((y-1980)/4));
+  const au=Math.floor(23.2488+0.242194*(y-1980)-Math.floor((y-1980)/4));
+  add(3,sp,'春分の日');add(9,au,'秋分の日');
+  const dow=(m,d)=>new Date(y,m-1,d).getDay();
+  const keys=Object.keys(H).map(k=>k.split('-').map(Number));
+  keys.forEach(([m,d])=>{ // 振替休日
+    if(dow(m,d)===0){let dt=new Date(y,m-1,d+1);while(H[(dt.getMonth()+1)+'-'+dt.getDate()])dt=new Date(dt.getFullYear(),dt.getMonth(),dt.getDate()+1);
+      if(dt.getFullYear()===y)H[(dt.getMonth()+1)+'-'+dt.getDate()]='振替休日'}});
+  for(let m=1;m<=12;m++)for(let d=2;d<=30;d++){ // 国民の休日
+    const k=m+'-'+d;if(H[k]||dow(m,d)===0)continue;
+    const p=new Date(y,m-1,d-1),q=new Date(y,m-1,d+1);
+    if(H[(p.getMonth()+1)+'-'+p.getDate()]&&H[(q.getMonth()+1)+'-'+q.getDate()])H[k]='国民の休日'}
+  return holCache[y]=H;
+}
+let cv=null;
+function renderCal(){
+  const n=nowParts();if(!cv)cv={y:n.y,m:n.m};
+  const{y,m}=cv;$('calTitle').textContent=`${y}年${m}月`;
+  const H=holidays(y);const first=new Date(y,m-1,1).getDay(),dim=new Date(y,m,0).getDate();
+  let h='<tr>'+WD.map((w,i)=>`<th class="${i==0?'sun':i==6?'sat':''}">${w}</th>`).join('')+'</tr><tr>';
+  for(let i=0;i<first;i++)h+='<td></td>';
+  for(let d=1;d<=dim;d++){const w=(first+d-1)%7,hn=H[m+'-'+d];
+    const cls=[hn||w==0?(hn?'hol':'sun'):w==6?'sat':'',(y==n.y&&m==n.m&&d==n.d)?'today':''].join(' ');
+    h+=`<td class="${cls}" data-h="${hn||''}">${d}</td>`;if((first+d)%7==0&&d<dim)h+='</tr><tr>'}
+  $('calTable').innerHTML=h+'</tr>';
+  const upd=()=>{const t=$('calTable').querySelector('.today');$('holname').textContent=t&&t.dataset.h?t.dataset.h:''};upd();
+  $('calTable').onclick=e=>{const t=e.target.closest('td');if(t)$('holname').textContent=t.dataset.h||''};
+}
+$('calPrev').onclick=()=>{cv.m--;if(cv.m<1){cv.m=12;cv.y--}renderCal()};
+$('calNext').onclick=()=>{cv.m++;if(cv.m>12){cv.m=1;cv.y++}renderCal()};
+$('calTitle').onclick=()=>{cv=null;renderCal()};
+
+/* ---------- Weather ---------- */
+const WC=c=>c==0?'☀️':c<=2?'🌤️':c==3?'☁️':c<=48?'🌫️':c<=57?'🌦️':c<=67?'🌧️':c<=77?'❄️':c<=82?'🌧️':c<=86?'🌨️':'⛈️';
+async function weather(){
+  if(!S.wx){$('weather').textContent='';return}
+  const go=async(lat,lon)=>{try{const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`);const j=await r.json();
+    $('weather').textContent=`${WC(j.current.weather_code)} ${Math.round(j.current.temperature_2m)}℃`}catch(e){$('weather').textContent=''}};
+  if(S.loc==='geo'&&navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>go(p.coords.latitude,p.coords.longitude),()=>go(35.68,139.76),{timeout:8000});
+  else{const[a,b]=(S.loc==='geo'?'35.68,139.76':S.loc).split(',');go(a,b)}
+}
+setInterval(weather,30*60*1000);
+
+/* ---------- YouTube background ---------- */
+let player=null,apiReady=false,pendingLoad=null;
+function parseYT(u){
+  u=(u||'').trim();if(!u)return null;
+  const o={};let m;
+  if(m=u.match(/[?&]list=([\w-]+)/))o.list=m[1];
+  if(m=u.match(/(?:youtu\.be\/|[?&]v=|embed\/|shorts\/|live\/)([\w-]{11})/))o.id=m[1];
+  else if(/^[\w-]{11}$/.test(u))o.id=u;
+  if(/^(PL|UU|FL|RD|OL|LL)[\w-]+$/.test(u)&&!o.list)o.list=u;
+  return(o.id||o.list)?o:null;
+}
+window.onYouTubeIframeAPIReady=()=>{apiReady=true;if(S.ytUrl)loadYT(S.ytUrl,true)};
+function loadYT(url,auto){
+  const p=parseYT(url);if(!p){alert('YouTubeのURLを認識できませんでした');return}
+  S.ytUrl=url;save();
+  const vars={autoplay:1,controls:0,disablekb:1,fs:0,iv_load_policy:3,modestbranding:1,playsinline:1,rel:0,loop:1};
+  if(location.protocol.startsWith('http'))vars.origin=location.origin;
+  else $('holname').textContent='※ file:// で開いているためYouTubeが再生できません。起動_アプリ.bat から開いてください';
+  if(p.list){vars.listType='playlist';vars.list=p.list}
+  else vars.playlist=p.id;
+  if(player){try{player.destroy()}catch(e){}$('bg').querySelector('.wrap').innerHTML='<div id="yt"></div>'}
+  player=new YT.Player('yt',{videoId:p.list?undefined:p.id,playerVars:vars,events:{
+    onReady:e=>{e.target.setVolume(S.ytVol);if(auto){e.target.mute();muted=true}else{e.target.unMute();muted=false}e.target.playVideo();syncMini();$('mini').classList.remove('hide')},
+    onStateChange:e=>{if(e.data===YT.PlayerState.ENDED&&!p.list)e.target.playVideo();syncMini()},
+    onError:e=>{console.warn('YT error',e.data);$('holname').textContent='YouTube再生エラー('+e.data+')'}}});
+  pushHist(url);applyBg();
+}
+let muted=false;
+function applyBg(){
+  const dark=S.ytTone==='dark';
+  $('bg').style.background=dark?'#0b0d12':'#e8ecf2';
+  $('bg').style.filter=S.ytBlur?`blur(${S.ytBlur}px)`:'none';
+  $('veil').style.background=dark?'#000':'#fff';
+  $('veil').style.opacity=1-S.ytOpacity/100;
+  document.documentElement.style.setProperty('--fg',S.ytTone==='light'&&S.color==='#ffffff'?'#111':S.color);
+}
+function pushHist(u){S.hist=[u,...S.hist.filter(x=>x!==u)].slice(0,8);save();renderHist()}
+function renderHist(){$('hist').innerHTML=S.hist.map((u,i)=>`<a data-i="${i}" title="${u}">${u}</a>`).join('');
+  $('hist').onclick=e=>{const a=e.target.closest('a');if(a){$('ytUrl').value=S.hist[a.dataset.i];loadYT(S.hist[a.dataset.i])}}}
+function syncMini(){
+  if(!player||!player.getPlayerState)return;
+  $('playBtn').textContent=player.getPlayerState()===1?'⏸':'▶';
+  $('muteBtn').textContent=(muted||S.ytVol==0)?'🔇':'🔊';$('miniVol').value=S.ytVol;
+}
+$('ytGo').onclick=()=>loadYT($('ytUrl').value);
+$('ytUrl').onkeydown=e=>{if(e.key==='Enter')loadYT($('ytUrl').value)};
+$('ytStop').onclick=()=>{if(player){try{player.destroy()}catch(e){}player=null;$('bg').querySelector('.wrap').innerHTML='<div id="yt"></div>'}$('mini').classList.add('hide');S.ytUrl='';save()};
+$('ytOpacity').oninput=e=>{S.ytOpacity=+e.target.value;$('ytOpacityV').textContent=S.ytOpacity+'%';applyBg();save()};
+$('ytBlur').oninput=e=>{S.ytBlur=+e.target.value;applyBg();save()};
+$('ytTone').onchange=e=>{S.ytTone=e.target.value;applyBg();save()};
+function setVol(v){S.ytVol=v;if(player&&player.setVolume){player.setVolume(v);if(v>0&&muted){player.unMute();muted=false}}$('ytVol').value=v;$('miniVol').value=v;save();syncMini()}
+$('ytVol').oninput=e=>setVol(+e.target.value);$('miniVol').oninput=e=>setVol(+e.target.value);
+$('playBtn').onclick=()=>{if(!player)return;player.getPlayerState()===1?player.pauseVideo():player.playVideo();setTimeout(syncMini,200)};
+$('muteBtn').onclick=()=>{if(!player)return;if(muted){player.unMute();muted=false}else{player.mute();muted=true}syncMini()};
+$('nextBtn').onclick=()=>{if(player&&player.nextVideo)player.nextVideo()};
+// 自動再生は無音で始まるため、最初の操作で音を出す
+const firstGesture=()=>{if(player&&muted&&S.ytVol>0&&player.unMute){player.unMute();muted=false;syncMini()}document.removeEventListener('pointerdown',firstGesture)};
+document.addEventListener('pointerdown',firstGesture);
+
+/* ---------- Panels / UI ---------- */
+document.querySelectorAll('.tb[data-p]').forEach(b=>b.onclick=()=>{
+  const p=$(b.dataset.p),open=!p.classList.contains('open');
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('open'));if(open)p.classList.add('open')});
+function fs(){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>{})}
+$('fsBtn').onclick=fs;
+document.addEventListener('keydown',e=>{if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;if(e.key==='f'||e.key==='F')fs();if(e.key==='Escape')document.querySelectorAll('.panel').forEach(x=>x.classList.remove('open'))});
+$('time').onclick=()=>{document.querySelectorAll('.panel').forEach(x=>x.classList.remove('open'));$('pSet').classList.add('open')};
+let idleT;const wake=()=>{document.body.classList.remove('idle');clearTimeout(idleT);idleT=setTimeout(()=>{if(!document.querySelector('.panel.open'))document.body.classList.add('idle')},4000)};
+['mousemove','pointerdown','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,wake));wake();
+
+/* ---------- Settings ---------- */
+function applySet(){
+  const r=document.documentElement.style;
+  r.setProperty('--size',S.size);r.setProperty('--weight',S.weight);
+  $('clockbox').style.fontFamily=S.font+',"Noto Sans JP",sans-serif';
+  $('cal').classList.toggle('hide',!S.cal);
+  applyBg();tick();
+  $('sFont').value=S.font;$('sSize').value=S.size;$('sWeight').value=S.weight;$('sColor').value=S.color;
+  $('sSec').checked=S.sec;$('s12').checked=S.h12;$('sCal').checked=S.cal;$('sWx').checked=S.wx;$('sTz').value=S.tz;$('sLoc').value=S.loc;$('sWake').checked=S.wake;
+  $('ytUrl').value=S.ytUrl;$('ytOpacity').value=S.ytOpacity;$('ytOpacityV').textContent=S.ytOpacity+'%';$('ytBlur').value=S.ytBlur;$('ytVol').value=S.ytVol;$('ytTone').value=S.ytTone;
+  if(S.tz!=='auto'){$('poworld').textContent='タイムゾーン: '+S.tz}else $('poworld').textContent='';
+}
+const bind=(id,k,fn,ev='oninput')=>{$(id)[ev]=e=>{S[k]=fn?fn(e.target):e.target.value;save();applySet()}};
+bind('sFont','font',null,'onchange');bind('sSize','size',t=>+t.value);bind('sWeight','weight',t=>+t.value);bind('sColor','color');
+bind('sSec','sec',t=>t.checked,'onchange');bind('s12','h12',t=>t.checked,'onchange');bind('sCal','cal',t=>t.checked,'onchange');
+bind('sTz','tz',null,'onchange');
+$('sWx').onchange=e=>{S.wx=e.target.checked;save();applySet();weather()};
+$('sLoc').onchange=e=>{S.loc=e.target.value;save();weather()};
+$('sColorAuto').onclick=()=>{S.color='#ffffff';save();applySet()};
+let wl=null;async function wakeLock(){try{if(S.wake&&'wakeLock' in navigator)wl=await navigator.wakeLock.request('screen');else if(wl){wl.release();wl=null}}catch(e){}}
+$('sWake').onchange=e=>{S.wake=e.target.checked;save();wakeLock()};
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.wake)wakeLock()});
+
+/* ---------- Beep ---------- */
+let ac;function beep(n=3){try{ac=ac||new AudioContext();for(let i=0;i<n;i++){const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=880;o.connect(g);g.connect(ac.destination);
+  const t=ac.currentTime+i*.35;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.3,t+.02);g.gain.exponentialRampToValueAtTime(.0001,t+.3);o.start(t);o.stop(t+.32)}}catch(e){}}
+const mmss=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return pad(Math.floor(s/60))+':'+pad(s%60)};
+
+/* ---------- Pomodoro ---------- */
+let po={phase:'work',count:0,end:0,left:0,run:false};
+const phLen=()=>(po.phase==='work'?S.po.work:po.phase==='short'?S.po.short:S.po.long)*60000;
+const phName={work:'作業',short:'短休憩',long:'長休憩'};
+function poRender(){
+  const left=po.run?po.end-Date.now():po.left;
+  $('poTime').textContent=mmss(left);$('poPhase').textContent=phName[po.phase]+`（${po.count%4}/4）`;
+  $('poStart').textContent=po.run?'一時停止':'開始';
+}
+function poNext(){
+  if(po.phase==='work'){S.po.done++;save();renderPoToday();po.count++;po.phase=po.count%4===0?'long':'short'}else po.phase='work';
+  po.left=phLen();po.run=false;poRender();
+}
+function renderPoToday(){$('poToday').textContent=`今日の完了：${S.po.done}回（約${S.po.done*S.po.work}分）`}
+po.left=phLen();
+$('poStart').onclick=()=>{if(po.run){po.left=po.end-Date.now();po.run=false}else{po.end=Date.now()+po.left;po.run=true}poRender()};
+$('poReset').onclick=()=>{po.run=false;po.left=phLen();poRender()};
+$('poSkip').onclick=()=>{poNext()};
+['Work','Short','Long'].forEach(k=>{const el=$('po'+k);el.value=S.po[k.toLowerCase()];el.onchange=e=>{S.po[k.toLowerCase()]=Math.max(1,+e.target.value||1);save();if(!po.run){po.left=phLen();poRender()}}});
+
+/* ---------- Countdown ---------- */
+let cd={run:false,end:0,left:5*60000};
+function cdRender(){const l=cd.run?cd.end-Date.now():cd.left;$('cdTime').textContent=(l<0?'-':'')+mmss(Math.abs(l));$('cdStart').textContent=cd.run?'一時停止':'開始'}
+$('cdMin').onchange=e=>{if(!cd.run){cd.left=Math.max(1,+e.target.value||1)*60000;cdRender()}};
+$('cdStart').onclick=()=>{if(cd.run){cd.left=cd.end-Date.now();cd.run=false}else{cd.end=Date.now()+cd.left;cd.run=true;cd.fired=false}cdRender()};
+$('cdReset').onclick=()=>{cd.run=false;cd.left=Math.max(1,+$('cdMin').value||1)*60000;cdRender()};
+
+/* ---------- Stopwatch ---------- */
+let sw={run:false,start:0,acc:0,laps:[]};
+const swMs=()=>sw.acc+(sw.run?Date.now()-sw.start:0);
+const swFmt=ms=>pad(Math.floor(ms/60000))+':'+pad(Math.floor(ms/1000)%60)+'.'+pad(Math.floor(ms/10)%100);
+$('swStart').onclick=()=>{if(sw.run){sw.acc+=Date.now()-sw.start;sw.run=false}else{sw.start=Date.now();sw.run=true}$('swStart').textContent=sw.run?'停止':'開始'};
+$('swLap').onclick=()=>{if(sw.run||sw.acc){sw.laps.unshift(swFmt(swMs()));$('swLaps').innerHTML=sw.laps.slice(0,8).map((l,i)=>`#${sw.laps.length-i} ${l}`).join('<br>')}};
+$('swReset').onclick=()=>{sw={run:false,start:0,acc:0,laps:[]};$('swStart').textContent='開始';$('swLaps').innerHTML=''};
+
+setInterval(()=>{
+  if(po.run){poRender();if(po.end-Date.now()<=0){beep(3);poNext();po.end=Date.now()+po.left;po.run=true;poRender()}}
+  if(cd.run){cdRender();if(!cd.fired&&cd.end-Date.now()<=0){cd.fired=true;beep(4)}}
+  if(sw.run||sw.acc)$('swTime').textContent=swFmt(swMs());
+},200);
+
+/* ---------- Init ---------- */
+renderHist();renderPoToday();poRender();cdRender();applySet();weather();wakeLock();
+</script>
+</body>
+</html>
