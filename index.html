@@ -18,6 +18,7 @@ html,body{margin:0;height:100%;background:#000;color:var(--fg);overflow:hidden;f
 #time{font-size:calc(var(--size,100)*.16vw + 8vh);font-weight:var(--weight,300);line-height:1;font-variant-numeric:tabular-nums;letter-spacing:.02em;cursor:pointer}
 #time small{font-size:.35em;margin-left:.15em}
 #date{margin-top:1.2vh;font-size:calc(var(--size,100)*.012vw + 2.2vh);opacity:.9;display:flex;gap:1em;justify-content:center;align-items:center}
+.wd{display:inline-block;margin-left:.6em;padding:.05em .45em;border:1.5px solid currentColor;border-radius:4px;font-size:.85em;line-height:1.3}
 #poworld{margin-top:2vh;font-size:2.2vh;opacity:.85}
 #cal{background:var(--panel);border-radius:14px;padding:14px 16px;min-width:260px;backdrop-filter:blur(8px)}
 #cal h4{margin:0 0 8px;display:flex;justify-content:space-between;align-items:center;font-weight:500}
@@ -65,7 +66,7 @@ html,body{margin:0;height:100%;background:#000;color:var(--fg);overflow:hidden;f
   </div>
   <div id="clockbox">
     <div id="time">00:00</div>
-    <div id="date"><span id="dateText"></span><span id="weather"></span></div>
+    <div id="date"><span id="weather"></span><span id="dateText"></span></div>
     <div id="poworld"></div>
   </div>
 </div>
@@ -178,7 +179,7 @@ function tick(){
   const n=nowParts();let h=n.h,suf='';
   if(S.h12){suf=h>=12?'PM':'AM';h=h%12||12}
   $('time').innerHTML=(S.h12?h:pad(h))+':'+pad(n.mi)+(S.sec?':'+pad(n.s):'')+(suf?`<small>${suf}</small>`:'');
-  $('dateText').textContent=`${n.y}年${n.m}月${n.d}日（${WD[n.w]}）`;
+  $('dateText').innerHTML=`${n.y}年${n.m}月${n.d}日<span class="wd">${WD[n.w]}</span>`;
   const k=n.y+'-'+n.m+'-'+n.d;
   if(k!==lastDay){lastDay=k;renderCal();if(S.po.day!==k){S.po.day=k;S.po.done=0;save();renderPoToday()}}
   document.title=pad(n.h)+':'+pad(n.mi)+' 自分用時計';
@@ -251,7 +252,7 @@ function parseYT(u){
 window.onYouTubeIframeAPIReady=()=>{apiReady=true;if(S.ytUrl)loadYT(S.ytUrl,true)};
 function loadYT(url,auto){
   const p=parseYT(url);if(!p){alert('YouTubeのURLを認識できませんでした');return}
-  S.ytUrl=url;save();
+  S.ytUrl=url;save();userPaused=false;resumeLog=[];
   const vars={autoplay:1,controls:0,disablekb:1,fs:0,iv_load_policy:3,modestbranding:1,playsinline:1,rel:0,loop:1};
   if(location.protocol.startsWith('http'))vars.origin=location.origin;
   else $('holname').textContent='※ file:// で開いているためYouTubeが再生できません。起動_アプリ.bat から開いてください';
@@ -260,11 +261,16 @@ function loadYT(url,auto){
   if(player){try{player.destroy()}catch(e){}$('bg').querySelector('.wrap').innerHTML='<div id="yt"></div>'}
   player=new YT.Player('yt',{videoId:p.list?undefined:p.id,playerVars:vars,events:{
     onReady:e=>{e.target.setVolume(S.ytVol);if(auto){e.target.mute();muted=true}else{e.target.unMute();muted=false}e.target.playVideo();syncMini();$('mini').classList.remove('hide')},
-    onStateChange:e=>{if(e.data===YT.PlayerState.ENDED&&!p.list)e.target.playVideo();syncMini()},
+    onStateChange:e=>{
+      if(e.data===YT.PlayerState.ENDED&&!p.list)e.target.playVideo();
+      // 自分で止めていないのに止まった場合は再開する（短時間に繰り返す場合は諦める）
+      if((e.data===2||e.data===-1||e.data===5)&&!userPaused){const t=Date.now();resumeLog=resumeLog.filter(x=>t-x<10000);if(resumeLog.length<4){resumeLog.push(t);setTimeout(()=>{try{if(!userPaused)e.target.playVideo()}catch(_){}},300)}}
+      syncMini()},
+    onAutoplayBlocked:()=>{$('holname').textContent='自動再生がブロックされました。画面をクリックすると再生します';const f=()=>{try{player.playVideo()}catch(_){}document.removeEventListener('pointerdown',f)};document.addEventListener('pointerdown',f)},
     onError:e=>{console.warn('YT error',e.data);$('holname').textContent='YouTube再生エラー('+e.data+')'}}});
   pushHist(url);applyBg();
 }
-let muted=false;
+let muted=false,userPaused=false,resumeLog=[];
 function applyBg(){
   const dark=S.ytTone==='dark';
   $('bg').style.background=dark?'#0b0d12':'#e8ecf2';
@@ -289,7 +295,7 @@ $('ytBlur').oninput=e=>{S.ytBlur=+e.target.value;applyBg();save()};
 $('ytTone').onchange=e=>{S.ytTone=e.target.value;applyBg();save()};
 function setVol(v){S.ytVol=v;if(player&&player.setVolume){player.setVolume(v);if(v>0&&muted){player.unMute();muted=false}}$('ytVol').value=v;$('miniVol').value=v;save();syncMini()}
 $('ytVol').oninput=e=>setVol(+e.target.value);$('miniVol').oninput=e=>setVol(+e.target.value);
-$('playBtn').onclick=()=>{if(!player)return;player.getPlayerState()===1?player.pauseVideo():player.playVideo();setTimeout(syncMini,200)};
+$('playBtn').onclick=()=>{if(!player)return;if(player.getPlayerState()===1){userPaused=true;player.pauseVideo()}else{userPaused=false;player.playVideo()}setTimeout(syncMini,200)};
 $('muteBtn').onclick=()=>{if(!player)return;if(muted){player.unMute();muted=false}else{player.mute();muted=true}syncMini()};
 $('nextBtn').onclick=()=>{if(player&&player.nextVideo)player.nextVideo()};
 // 自動再生は無音で始まるため、最初の操作で音を出す
