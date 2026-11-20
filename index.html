@@ -283,9 +283,8 @@ let idleSince=0;
 setInterval(()=>{if(!player||!player.getPlayerState||userPaused||ytErr)return;const st=player.getPlayerState();
   if(st===1||st===3){idleSince=0;dbg((STN[st]||st)+(muted?'（無音）':''));return}
   if(st===2){try{player.playVideo();dbg('一時停止→再開')}catch(_){}return}
-  if(!idleSince)idleSince=Date.now();
-  if(Date.now()-idleSince>15000){try{player.playVideo();dbg('再開 (state '+st+')')}catch(_){}idleSince=Date.now()}
-  else dbg((STN[st]||st)+'（広告or読込中）');},2000);
+  // state -1/5 は広告再生中など。playVideo() を送ると広告が最初からやり直しになるので触らない
+  dbg((STN[st]||st)+'（広告or読込中）');},2000);
 function applyBg(){
   const dark=S.ytTone==='dark';
   $('bg').style.background=dark?'#0b0d12':'#e8ecf2';
