@@ -48,8 +48,13 @@ body.m-audio:not(.ad) #bg .wrap{opacity:0}
 .row select option{color:#000}
 .btn{background:var(--accent);color:#000;border:0;border-radius:8px;padding:6px 12px;cursor:pointer;font-weight:600}
 .btn.ghost{background:rgba(255,255,255,.15);color:var(--fg)}
-#mini{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:10px;align-items:center;background:var(--panel);padding:8px 14px;border-radius:30px;backdrop-filter:blur(8px);transition:opacity .4s;font-size:13px}
-#mini input[type=range]{width:110px}
+#mini{position:fixed;left:0;right:0;margin:0 auto;width:max-content;bottom:14px;display:flex;flex-direction:column;gap:2px;align-items:center;background:var(--panel);padding:8px 16px;border-radius:24px;backdrop-filter:blur(8px);transition:opacity .4s;font-size:13px;max-width:96vw}
+#mini .mrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center}
+#mini input[type=range]{width:90px}
+#mini #seek{width:min(300px,32vw)}
+#mini .tm{font-variant-numeric:tabular-nums;opacity:.85;min-width:3.2em;text-align:center;font-size:12px}
+#mini button.sk{font-size:12px;font-weight:600}
+#mini #seek:disabled{opacity:.35}
 #mini button{background:none;border:0;color:var(--fg);cursor:pointer;font-size:18px}
 .big{font-size:42px;text-align:center;font-variant-numeric:tabular-nums;margin:6px 0}
 .hist{display:flex;flex-direction:column;gap:4px;margin-top:6px}
@@ -89,11 +94,19 @@ body.m-audio:not(.ad) #bg .wrap{opacity:0}
 </div>
 
 <div id="mini" class="hide">
-  <button id="playBtn" title="再生/停止">⏸</button>
-  <button id="muteBtn" title="ミュート">🔊</button>
-  <input type="range" id="miniVol" min="0" max="100">
-  <button id="nextBtn" title="次へ">⏭</button>
-  <span id="dbg" style="opacity:.55;font-size:11px"></span>
+  <div class="mrow">
+    <button id="prevBtn" title="前の動画">⏮</button>
+    <button id="backBtn" title="10秒戻る" class="sk">⟲10</button>
+    <button id="playBtn" title="再生/停止">⏸</button>
+    <button id="fwdBtn" title="10秒進む" class="sk">10⟳</button>
+    <button id="nextBtn" title="次の動画">⏭</button>
+    <span id="tCur" class="tm">0:00</span>
+    <input type="range" id="seek" min="0" max="1000" value="0" step="1">
+    <span id="tDur" class="tm">0:00</span>
+    <button id="muteBtn" title="ミュート">🔊</button>
+    <input type="range" id="miniVol" min="0" max="100">
+  </div>
+  <span id="dbg" style="opacity:.55;font-size:11px;text-align:center"></span>
 </div>
 
 <!-- YouTube背景 -->
@@ -466,6 +479,26 @@ $('ytVol').oninput=e=>setVol(+e.target.value);$('miniVol').oninput=e=>setVol(+e.
 $('playBtn').onclick=()=>{if(!player)return;if(player.getPlayerState()===1){userPaused=true;player.pauseVideo()}else{userPaused=false;player.playVideo()}setTimeout(syncMini,200)};
 $('muteBtn').onclick=()=>{if(!player||S.ytMode==='video')return;if(muted){player.unMute();muted=false}else{player.mute();muted=true}syncMini()};
 $('nextBtn').onclick=()=>{if(player&&player.nextVideo)player.nextVideo()};
+$('prevBtn').onclick=()=>{if(player&&player.previousVideo)player.previousVideo()};
+/* 再生バー・10秒移動 */
+const fmtT=s=>{s=Math.max(0,Math.floor(s||0));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;return(h?h+':'+pad(m):m)+':'+pad(ss)};
+let seeking=false;
+const seekBy=d=>{try{if(!player||!player.getCurrentTime)return;const dur=player.getDuration()||0;let t=player.getCurrentTime()+d;t=Math.max(0,dur?Math.min(dur-1,t):t);player.seekTo(t,true)}catch(_){}};
+$('backBtn').onclick=()=>seekBy(-10);$('fwdBtn').onclick=()=>seekBy(10);
+$('seek').addEventListener('pointerdown',()=>{seeking=true});
+$('seek').addEventListener('input',e=>{try{const dur=player.getDuration()||0;$('tCur').textContent=fmtT(e.target.value/1000*dur)}catch(_){}});
+$('seek').addEventListener('change',e=>{try{const dur=player.getDuration()||0;if(dur)player.seekTo(e.target.value/1000*dur,true)}catch(_){}seeking=false});
+document.addEventListener('pointerup',()=>{setTimeout(()=>{seeking=false},50)});
+setInterval(()=>{
+  if(!player||!player.getCurrentTime||!player.getPlayerState)return;
+  let st,cur=0,dur=0;try{st=player.getPlayerState();cur=player.getCurrentTime();dur=player.getDuration()||0}catch(_){return}
+  const ok=dur>0&&(st===1||st===2||st===3);   // 広告中(-1)・ライブ(長さ0)は操作不可
+  $('seek').disabled=!ok;$('backBtn').disabled=$('fwdBtn').disabled=!ok;
+  if(seeking)return;
+  $('seek').value=ok?Math.round(cur/dur*1000):0;
+  $('tCur').textContent=ok?fmtT(cur):(st===-1?'広告':'--:--');
+  $('tDur').textContent=ok?fmtT(dur):(dur===0&&st===1?'LIVE':'--:--');
+},500);
 // 自動再生は無音で始まるため、最初の操作で音を出す
 const firstGesture=()=>{if(player&&muted&&S.ytVol>0&&S.ytMode!=='video'&&player.unMute){player.unMute();muted=false;syncMini()}document.removeEventListener('pointerdown',firstGesture)};
 document.addEventListener('pointerdown',firstGesture);
