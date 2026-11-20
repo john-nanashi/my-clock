@@ -259,7 +259,7 @@ function loadYT(url,auto){
   S.ytUrl=url;save();userPaused=false;resumeLog=[];ytErr=false;
   const vars={autoplay:1,controls:0,disablekb:1,fs:0,iv_load_policy:3,modestbranding:1,playsinline:1,rel:0,loop:1};
   if(location.protocol.startsWith('http'))vars.origin=location.origin;
-  else $('holname').textContent='※ file:// で開いているためYouTubeが再生できません。起動_アプリ.bat から開いてください';
+  else $('holname').textContent='※ file:// で開いているためYouTubeが再生できません。公開URL（https://john-nanashi.github.io/my-clock/）から開いてください';
   if(p.list){vars.listType='playlist';vars.list=p.list}
   else vars.playlist=p.id;
   if(player){try{player.destroy()}catch(e){}$('bg').querySelector('.wrap').innerHTML='<div id="yt"></div>'}
