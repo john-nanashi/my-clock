@@ -136,6 +136,7 @@ body.m-audio:not(.ad) #bg .wrap{opacity:0}
   <h3>オーディオスペクトラム</h3>
   <div class="row"><label>表示</label><select id="specSel"><option value="none">なし</option><option value="bar">バー（画面下）</option><option value="circle">円形（時計のまわり）</option></select></div>
   <div class="row"><label>大きさ</label><input type="range" id="specAmt" min="20" max="150"></div>
+  <div class="row"><label>色</label><select id="specColSel"><option value="auto">背景に合わせる（自動）</option><option value="text">文字色に合わせる</option><option value="custom">好きな色</option></select><input type="color" id="specCustom"></div>
   <div class="row"><button class="btn" id="specCap">音を取り込む（本物の解析）</button></div>
   <div class="row" style="opacity:.8;font-size:12px" id="specStat"></div>
   <p style="opacity:.6;font-size:12px">通常は疑似表示（再生中だけ音楽っぽく動く）です。「音を取り込む」を押すと、共有ダイアログで<b>この時計のタブ</b>を選び、<b>「タブの音声も共有」にチェック</b>を入れてください。音の解析はこのブラウザ内だけで行い、外部には送信しません。</p>
@@ -196,7 +197,7 @@ body.m-audio:not(.ad) #bg .wrap{opacity:0}
 <script>
 const $=id=>document.getElementById(id);
 const DEF={font:"'Jost',sans-serif",size:100,weight:300,color:'#ffffff',sec:false,h12:false,cal:true,wx:true,tz:'auto',loc:'geo',wake:false,
-  ytUrl:'',ytOpacity:35,ytBlur:0,ytVol:40,ytTone:'dark',ytMode:'both',fx:'none',fxAmt:50,fxAuto:false,spec:'none',specAmt:60,hist:[],po:{work:25,short:5,long:15,done:0,day:''}};
+  ytUrl:'',ytOpacity:35,ytBlur:0,ytVol:40,ytTone:'dark',ytMode:'both',fx:'none',fxAmt:50,fxAuto:false,spec:'none',specAmt:60,specColor:'auto',specCustom:'#8ad1ff',hist:[],po:{work:25,short:5,long:15,done:0,day:''}};
 let S;
 try{S=Object.assign({},DEF,JSON.parse(localStorage.getItem('clockS')||'{}'))}catch(e){S={...DEF}}
 S.po=Object.assign({},DEF.po,S.po||{});
@@ -291,6 +292,35 @@ const NB=64;let spV=new Float32Array(NB),spBeat=0,spNext=0,spT=0,spCenter={x:0,y
 const spPh=Array.from({length:NB},()=>({a:rnd(.8,3.2),b:rnd(.5,2.4),p:rnd(0,6.28),q:rnd(0,6.28)}));
 function spResize(){const r=window.devicePixelRatio||1;spCv.width=Math.round(innerWidth*r);spCv.height=Math.round(innerHeight*r);sx.setTransform(r,0,0,r,0,0)}
 function fgRGB(){const eff=S.ytTone==='light'&&S.color==='#ffffff'?'#111111':S.color;const c=parseInt(eff.slice(1),16);return[(c>>16)&255,(c>>8)&255,c&255]}
+/* 背景（YouTubeサムネイル）の代表色を取り出して、スペクトラムの色にする */
+let specAuto=null,specVid='',specCol=[255,255,255];const thumbCache={};
+function tuneColor(r,g,b){ // 見やすい明るさ・鮮やかさに調整
+  r/=255;g/=255;b/=255;const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let h=0,s=0,l=(mx+mn)/2;
+  if(mx!==mn){const d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);h=mx===r?(g-b)/d+(g<b?6:0):mx===g?(b-r)/d+2:(r-g)/d+4;h/=6}
+  s=Math.max(s,.55);l=S.ytTone==='light'?.38:.66;
+  const f=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;return t<1/6?p+(q-p)*6*t:t<1/2?q:t<2/3?p+(q-p)*(2/3-t)*6:p};
+  const q=l<.5?l*(1+s):l+s-l*s,p=2*l-q;return[f(p,q,h+1/3),f(p,q,h),f(p,q,h-1/3)].map(v=>Math.round(v*255))}
+function dominantColor(img){
+  const c=document.createElement('canvas');c.width=48;c.height=27;const x=c.getContext('2d');x.drawImage(img,0,0,48,27);
+  const d=x.getImageData(0,0,48,27).data,bins=Array.from({length:12},()=>({w:0,r:0,g:0,b:0}));
+  for(let i=0;i<d.length;i+=4){const r=d[i],g=d[i+1],b=d[i+2],mx=Math.max(r,g,b),mn=Math.min(r,g,b);const v=mx/255,s=mx?(mx-mn)/mx:0;
+    if(v<.18||s<.18)continue;let h=0;const dd=mx-mn;h=mx===r?((g-b)/dd+(g<b?6:0)):mx===g?(b-r)/dd+2:(r-g)/dd+4;
+    const bi=Math.floor(h/6*12)%12,w=s*v;const B=bins[bi];B.w+=w;B.r+=r*w;B.g+=g*w;B.b+=b*w}
+  let best=null;for(const B of bins)if(B.w>0&&(!best||B.w>best.w))best=B;
+  if(!best)return null;return tuneColor(best.r/best.w,best.g/best.w,best.b/best.w)}
+function loadThumbColor(vid){
+  if(thumbCache[vid]!==undefined){specAuto=thumbCache[vid];return}
+  const img=new Image();img.crossOrigin='anonymous';
+  img.onload=()=>{let c=null;try{c=dominantColor(img)}catch(_){}thumbCache[vid]=c;if(specVid===vid)specAuto=c};
+  img.onerror=()=>{thumbCache[vid]=null;if(specVid===vid)specAuto=null};
+  img.src='https://i.ytimg.com/vi/'+vid+'/mqdefault.jpg'}
+setInterval(()=>{try{const vid=player&&player.getVideoData?player.getVideoData().video_id:'';
+  if(!vid){if(specVid){specVid='';specAuto=null}return}
+  if(vid!==specVid){specVid=vid;specAuto=null;loadThumbColor(vid)}}catch(_){}},1500);
+function specTarget(){
+  if(S.specColor==='custom'){const c=parseInt((S.specCustom||'#8ad1ff').slice(1),16);return[(c>>16)&255,(c>>8)&255,c&255]}
+  if(S.specColor==='auto'&&specAuto)return specAuto;
+  return fgRGB()}
 function isPlaying(){try{return !!player&&player.getPlayerState&&player.getPlayerState()===1&&S.ytMode!=='video'}catch(_){return false}}
 /* --- 本物の解析（タブの音声を取り込む） --- */
 let specLive=false,specAn=null,specData=null,specStream=null,specAc=null;
@@ -329,7 +359,8 @@ function specLoop(){requestAnimationFrame(specLoop);if(document.hidden)return;
       const tilt=Math.pow(1-k,.9)*.85+.15;
       tgt=Math.min(1,tilt*(.25+.75*n)*(.55+.7*spBeat*(1-k*.6))+Math.random()*.04)}
     spV[i]+=(tgt-spV[i])*(tgt>spV[i]?.45:.12)}
-  const[r,g,b]=fgRGB(),amt=S.specAmt/60;
+  const tg=specTarget();for(let k=0;k<3;k++)specCol[k]+=(tg[k]-specCol[k])*.05; // ゆっくり色が移り変わる
+  const r=Math.round(specCol[0]),g=Math.round(specCol[1]),b=Math.round(specCol[2]),amt=S.specAmt/60;
   if(S.spec==='bar'){
     const bw=W/NB,maxH=H*.28*amt;
     for(let i=0;i<NB;i++){const h=Math.max(2,spV[i]*maxH);const x=i*bw+bw*.15;
@@ -525,7 +556,7 @@ function applySet(){
   $('sSec').checked=S.sec;$('s12').checked=S.h12;$('sCal').checked=S.cal;$('sWx').checked=S.wx;$('sTz').value=S.tz;$('sLoc').value=S.loc;$('sWake').checked=S.wake;
   $('ytUrl').value=S.ytUrl;$('ytOpacity').value=S.ytOpacity;$('ytOpacityV').textContent=S.ytOpacity+'%';$('ytBlur').value=S.ytBlur;$('ytVol').value=S.ytVol;$('ytTone').value=S.ytTone;
   if(S.tz!=='auto'){$('poworld').textContent='タイムゾーン: '+S.tz}else $('poworld').textContent='';
-  $('specSel').value=S.spec;$('specAmt').value=S.specAmt;
+  $('specSel').value=S.spec;$('specAmt').value=S.specAmt;$('specColSel').value=S.specColor;$('specCustom').value=S.specCustom;$('specCustom').style.display=S.specColor==='custom'?'':'none';
   $('ytMode').value=S.ytMode;$('fxSel').value=S.fx;$('fxAmt').value=S.fxAmt;$('fxAuto').checked=S.fxAuto;
   document.body.classList.toggle('m-audio',S.ytMode==='audio');
   fxCheck();
@@ -535,7 +566,7 @@ bind('sFont','font',null,'onchange');bind('sSize','size',t=>+t.value);bind('sWei
 bind('sSec','sec',t=>t.checked,'onchange');bind('s12','h12',t=>t.checked,'onchange');bind('sCal','cal',t=>t.checked,'onchange');
 bind('sTz','tz',null,'onchange');
 $('sWx').onchange=e=>{S.wx=e.target.checked;save();applySet();weather()};
-bind('specSel','spec',null,'onchange');bind('specAmt','specAmt',t=>+t.value);
+bind('specSel','spec',null,'onchange');bind('specColSel','specColor',null,'onchange');bind('specCustom','specCustom');bind('specAmt','specAmt',t=>+t.value);
 bind('fxSel','fx',null,'onchange');bind('fxAmt','fxAmt',t=>+t.value);
 $('fxAuto').onchange=e=>{S.fxAuto=e.target.checked;save();applySet();weather()};
 $('ytMode').onchange=e=>{S.ytMode=e.target.value;save();applySet();
