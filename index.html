@@ -60,6 +60,7 @@ body.ad #stage{pointer-events:none}
 <body>
 <div id="bg"><div class="wrap"><div id="yt"></div></div></div>
 <div id="veil"></div>
+<pre id="logbox" class="hide" style="position:fixed;left:8px;bottom:60px;max-width:min(720px,95vw);max-height:60vh;overflow:auto;margin:0;padding:10px;background:rgba(0,0,0,.85);color:#9f9;font-size:11px;z-index:50;white-space:pre-wrap;border-radius:8px;pointer-events:none"></pre>
 
 <div id="stage">
   <div id="cal">
@@ -264,7 +265,7 @@ function loadYT(url,auto){
   else vars.playlist=p.id;
   if(player){try{player.destroy()}catch(e){}$('bg').querySelector('.wrap').innerHTML='<div id="yt"></div>'}
   player=new YT.Player('yt',{videoId:p.list?undefined:p.id,playerVars:vars,events:{
-    onReady:e=>{e.target.setVolume(S.ytVol);e.target.mute();muted=true;wantSound=!auto;unmuteTried=false;e.target.playVideo();syncMini();$('mini').classList.remove('hide')},
+    onReady:e=>{dbg('ready (auto='+auto+')');e.target.setVolume(S.ytVol);e.target.mute();muted=true;wantSound=!auto;unmuteTried=false;e.target.playVideo();syncMini();$('mini').classList.remove('hide')},
     onStateChange:e=>{
       if(e.data===YT.PlayerState.ENDED&&!p.list)e.target.playVideo();
       // 無音で再生が始まってから音を出す（音ありで始めるとブラウザに止められることがあるため）
@@ -273,13 +274,22 @@ function loadYT(url,auto){
         if(wantSound&&act&&S.ytVol>0){try{e.target.unMute();muted=false}catch(_){}
           setTimeout(()=>{try{if(e.target.getPlayerState()!==1){e.target.mute();muted=true;e.target.playVideo();$('holname').textContent='音を出すには画面を一度クリックしてください'}}catch(_){}syncMini()},1500)}}
       dbg('state '+e.data);syncMini()},
-    onAutoplayBlocked:()=>{$('holname').textContent='自動再生がブロックされました。画面をクリックすると再生します';const f=()=>{try{player.playVideo()}catch(_){}document.removeEventListener('pointerdown',f)};document.addEventListener('pointerdown',f)},
+    onApiChange:()=>dbg('apiChange'),
+    onAutoplayBlocked:()=>{dbg('autoplayBlocked');$('holname').textContent='自動再生がブロックされました。画面をクリックすると再生します';const f=()=>{try{player.playVideo()}catch(_){}document.removeEventListener('pointerdown',f)};document.addEventListener('pointerdown',f)},
     onError:e=>{console.warn('YT error',e.data);dbg('error '+e.data);$('holname').textContent='YouTube再生エラー('+e.data+')'}}});
   pushHist(url);applyBg();
 }
 let muted=false,userPaused=false,resumeLog=[],wantSound=false,unmuteTried=false,ytErr=false;
 const STN={'-1':'未開始',0:'終了',1:'再生中',2:'一時停止',3:'読込中',5:'待機'};
-function dbg(t){const el=$('dbg');if(el)el.textContent=t;if(/error/.test(t))ytErr=true}
+const LOG=[];
+function dbg(t){const el=$('dbg');if(el)el.textContent=t;if(/error/.test(t))ytErr=true;
+  const ts=new Date().toTimeString().slice(0,8);if(!LOG.length||LOG[LOG.length-1].t!==t){LOG.push({ts,t});if(LOG.length>40)LOG.shift()}
+  const pre=$('logbox');if(pre&&!pre.classList.contains('hide'))renderLog()}
+function renderLog(){let cur='';try{cur=player&&player.getCurrentTime?player.getCurrentTime().toFixed(1)+'s':''}catch(_){}
+  $('logbox').textContent=['[診断ログ] Dキーで閉じる','UA: '+navigator.userAgent.replace(/Mozilla\/5.0 /,''),'origin: '+location.origin,'hidden: '+document.hidden+' / 再生位置: '+cur,
+    'iframe: '+(document.querySelector('#bg iframe')?document.querySelector('#bg iframe').src.slice(0,120):'なし'),'---',...LOG.map(l=>l.ts+' '+l.t)].join('\n')}
+document.addEventListener('keydown',e=>{if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;if(e.key==='d'||e.key==='D'){const b=$('logbox');b.classList.toggle('hide');if(!b.classList.contains('hide'))renderLog()}});
+setInterval(()=>{const b=$('logbox');if(b&&!b.classList.contains('hide'))renderLog()},1000);
 // 見張り役：自分で止めていないのに止まっていたら再開する
 // ※ state -1 は広告再生中にも出るので、すぐには触らず15秒以上続いたときだけ再開を試みる
 let idleSince=0;
