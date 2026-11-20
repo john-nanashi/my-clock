@@ -277,7 +277,8 @@ function loadYT(url,auto){
       dbg('state '+e.data);syncMini()},
     onApiChange:()=>dbg('apiChange'),
     onAutoplayBlocked:()=>{dbg('autoplayBlocked');$('holname').textContent='自動再生がブロックされました。画面をクリックすると再生します';const f=()=>{try{player.playVideo()}catch(_){}document.removeEventListener('pointerdown',f)};document.addEventListener('pointerdown',f)},
-    onError:e=>{console.warn('YT error',e.data);dbg('error '+e.data);$('holname').textContent='YouTube再生エラー('+e.data+')'}}});
+    onError:e=>{console.warn('YT error',e.data);dbg('error '+e.data);const msg={2:'URLが正しくありません',5:'プレーヤーのエラーです',100:'動画が見つからない／非公開です',101:'この動画は埋め込み再生が許可されていません',150:'この動画は埋め込み再生が許可されていません（権利者の設定）'}[e.data]||'再生できません';
+      $('holname').textContent='⚠ '+msg+'（エラー'+e.data+'）。別の動画をお試しください'}}});
   pushHist(url);applyBg();
 }
 let muted=false,userPaused=false,resumeLog=[],wantSound=false,unmuteTried=false,ytErr=false;
