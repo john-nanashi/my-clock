@@ -12,6 +12,9 @@ html,body{margin:0;height:100%;background:#000;color:var(--fg);overflow:hidden;f
 #bg{position:fixed;inset:0;overflow:hidden;background:#0b0d12;transition:filter .3s}
 #bg .wrap{position:absolute;left:50%;top:50%;width:max(100vw,177.78vh);height:max(56.25vw,100vh);transform:translate(-50%,-50%);pointer-events:none}
 #bg iframe,#yt{width:100%;height:100%;border:0;pointer-events:none}
+/* 広告再生中だけ、背景のYouTubeを直接クリックできるようにする（スキップボタン用） */
+body.ad #bg .wrap,body.ad #bg iframe,body.ad #yt{pointer-events:auto}
+body.ad #stage{pointer-events:none}
 #veil{position:fixed;inset:0;background:#000;pointer-events:none}
 #stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;gap:4vw;padding:2vw}
 #clockbox{text-align:center;text-shadow:0 2px 20px rgba(0,0,0,.45)}
@@ -281,10 +284,11 @@ function dbg(t){const el=$('dbg');if(el)el.textContent=t;if(/error/.test(t))ytEr
 // ※ state -1 は広告再生中にも出るので、すぐには触らず15秒以上続いたときだけ再開を試みる
 let idleSince=0;
 setInterval(()=>{if(!player||!player.getPlayerState||userPaused||ytErr)return;const st=player.getPlayerState();
-  if(st===1||st===3){idleSince=0;dbg((STN[st]||st)+(muted?'（無音）':''));return}
-  if(st===2){try{player.playVideo();dbg('一時停止→再開')}catch(_){}return}
+  if(st===1||st===3){idleSince=0;document.body.classList.remove('ad');dbg((STN[st]||st)+(muted?'（無音）':''));return}
+  if(st===2){document.body.classList.remove('ad');try{player.playVideo();dbg('一時停止→再開')}catch(_){}return}
+  document.body.classList.add('ad');
   // state -1/5 は広告再生中など。playVideo() を送ると広告が最初からやり直しになるので触らない
-  dbg((STN[st]||st)+'（広告or読込中）');},2000);
+  dbg('広告中：右下の「スキップ」を押せます');},2000);
 function applyBg(){
   const dark=S.ytTone==='dark';
   $('bg').style.background=dark?'#0b0d12':'#e8ecf2';
