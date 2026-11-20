@@ -79,6 +79,7 @@ body.ad #stage{pointer-events:none}
   <button class="tb" data-p="pBg" title="背景(YouTube)">▶</button>
   <button class="tb" data-p="pTimer" title="タイマー">⏱</button>
   <button class="tb" data-p="pSet" title="表示設定">⚙</button>
+  <button class="tb" id="logBtn" title="診断ログ">🐞</button>
   <button class="tb" id="fsBtn" title="全画面 (F)">⛶</button>
 </div>
 
@@ -290,6 +291,8 @@ function renderLog(){let cur='';try{cur=player&&player.getCurrentTime?player.get
     'iframe: '+(document.querySelector('#bg iframe')?document.querySelector('#bg iframe').src.slice(0,120):'なし'),'---',...LOG.map(l=>l.ts+' '+l.t)].join('\n')}
 document.addEventListener('keydown',e=>{if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;if(e.key==='d'||e.key==='D'){const b=$('logbox');b.classList.toggle('hide');if(!b.classList.contains('hide'))renderLog()}});
 setInterval(()=>{const b=$('logbox');if(b&&!b.classList.contains('hide'))renderLog()},1000);
+$('logBtn').onclick=()=>{const b=$('logbox');b.classList.toggle('hide');if(!b.classList.contains('hide'))renderLog()};
+if(/[?&]debug/.test(location.search)){$('logbox').classList.remove('hide');renderLog()}
 // 見張り役：自分で止めていないのに止まっていたら再開する
 // ※ state -1 は広告再生中にも出るので、すぐには触らず15秒以上続いたときだけ再開を試みる
 let idleSince=0;
