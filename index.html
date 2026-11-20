@@ -123,7 +123,9 @@ body.m-audio:not(.ad) #bg .wrap{opacity:0}
   <h3>オーディオスペクトラム</h3>
   <div class="row"><label>表示</label><select id="specSel"><option value="none">なし</option><option value="bar">バー（画面下）</option><option value="circle">円形（時計のまわり）</option></select></div>
   <div class="row"><label>大きさ</label><input type="range" id="specAmt" min="20" max="150"></div>
-  <p style="opacity:.6;font-size:12px">YouTubeの音そのものには反応しない疑似表示です。再生中だけ音楽っぽく動き、停止中は静かになります。</p>
+  <div class="row"><button class="btn" id="specCap">音を取り込む（本物の解析）</button></div>
+  <div class="row" style="opacity:.8;font-size:12px" id="specStat"></div>
+  <p style="opacity:.6;font-size:12px">通常は疑似表示（再生中だけ音楽っぽく動く）です。「音を取り込む」を押すと、共有ダイアログで<b>この時計のタブ</b>を選び、<b>「タブの音声も共有」にチェック</b>を入れてください。音の解析はこのブラウザ内だけで行い、外部には送信しません。</p>
   <p style="opacity:.6;font-size:12px">「天気に合わせる」をオンにすると、現在地の実際の天気（雨・雪・霧・雷）に応じて自動で切り替わります。晴れや曇りのときは何も出ません。</p>
 </div>
 
@@ -277,13 +279,40 @@ const spPh=Array.from({length:NB},()=>({a:rnd(.8,3.2),b:rnd(.5,2.4),p:rnd(0,6.28
 function spResize(){const r=window.devicePixelRatio||1;spCv.width=Math.round(innerWidth*r);spCv.height=Math.round(innerHeight*r);sx.setTransform(r,0,0,r,0,0)}
 function fgRGB(){const eff=S.ytTone==='light'&&S.color==='#ffffff'?'#111111':S.color;const c=parseInt(eff.slice(1),16);return[(c>>16)&255,(c>>8)&255,c&255]}
 function isPlaying(){try{return !!player&&player.getPlayerState&&player.getPlayerState()===1&&S.ytMode!=='video'}catch(_){return false}}
+/* --- 本物の解析（タブの音声を取り込む） --- */
+let specLive=false,specAn=null,specData=null,specStream=null,specAc=null;
+const specMsg=t=>{const el=$('specStat');if(el)el.textContent=t};
+async function specStart(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){specMsg('このブラウザは音声の取り込みに対応していません（Chrome/Edgeで使えます）');return}
+  try{
+    const st=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true,preferCurrentTab:true,selfBrowserSurface:'include',systemAudio:'exclude'});
+    if(!st.getAudioTracks().length){st.getTracks().forEach(t=>t.stop());specMsg('音声が含まれていません。「タブの音声も共有」にチェックを入れてもう一度お試しください');return}
+    st.getVideoTracks().forEach(t=>t.stop()); // 映像は使わない
+    specAc=specAc||new AudioContext();await specAc.resume();
+    const src=specAc.createMediaStreamSource(new MediaStream(st.getAudioTracks()));
+    specAn=specAc.createAnalyser();specAn.fftSize=2048;specAn.smoothingTimeConstant=.55;src.connect(specAn); // destinationには繋がない（二重再生しない）
+    specData=new Uint8Array(specAn.frequencyBinCount);specStream=st;specLive=true;
+    st.getAudioTracks()[0].addEventListener('ended',specStop);
+    $('specCap').textContent='取り込みを停止';specMsg('取り込み中：音そのものに反応しています');
+    if(S.spec==='none'){S.spec='bar';save();applySet()}
+  }catch(e){specMsg('取り込みを開始できませんでした（キャンセルまたは許可なし）')}
+}
+function specStop(){
+  try{specStream&&specStream.getTracks().forEach(t=>t.stop())}catch(_){}
+  specStream=null;specAn=null;specLive=false;$('specCap').textContent='音を取り込む（本物の解析）';specMsg('取り込みを停止しました（疑似表示に戻ります）');
+}
+$('specCap').onclick=()=>specLive?specStop():specStart();
+
 function specLoop(){requestAnimationFrame(specLoop);if(document.hidden)return;
   const W=innerWidth,H=innerHeight;sx.clearRect(0,0,W,H);if(S.spec==='none')return;
-  const on=isPlaying();spT+=.016;const now=performance.now();
+  const live=specLive&&specAn;if(live)specAn.getByteFrequencyData(specData);
+  const on=!live&&isPlaying();spT+=.016;const now=performance.now();
   if(on&&now>spNext){spBeat=1;spNext=now+rnd(380,620)}spBeat*=.9;
   for(let i=0;i<NB;i++){const k=i/NB,p=spPh[i];
     let tgt=0.05;
-    if(on){const n=.5+.5*Math.sin(spT*p.a*2+p.p)*Math.sin(spT*p.b*2.3+p.q);
+    if(live){const lo=Math.floor(Math.pow(k,2)*380)+2,hi=Math.max(lo+1,Math.floor(Math.pow((i+1)/NB,2)*380)+2);let m=0;for(let j=lo;j<hi;j++)if(specData[j]>m)m=specData[j];
+      tgt=Math.min(1,Math.pow(m/255,1.4)*(1+k*.9)+.02)}
+    else if(on){const n=.5+.5*Math.sin(spT*p.a*2+p.p)*Math.sin(spT*p.b*2.3+p.q);
       const tilt=Math.pow(1-k,.9)*.85+.15;
       tgt=Math.min(1,tilt*(.25+.75*n)*(.55+.7*spBeat*(1-k*.6))+Math.random()*.04)}
     spV[i]+=(tgt-spV[i])*(tgt>spV[i]?.45:.12)}
