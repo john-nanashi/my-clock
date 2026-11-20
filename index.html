@@ -15,6 +15,8 @@ html,body{margin:0;height:100%;background:#000;color:var(--fg);overflow:hidden;f
 /* 広告再生中だけ、背景のYouTubeを直接クリックできるようにする（スキップボタン用） */
 body.ad #bg .wrap,body.ad #bg iframe,body.ad #yt{pointer-events:auto}
 body.ad #stage{pointer-events:none}
+body.m-audio:not(.ad) #bg .wrap{opacity:0}
+#fx{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
 #veil{position:fixed;inset:0;background:#000;pointer-events:none}
 #stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;gap:4vw;padding:2vw}
 #clockbox{text-align:center;text-shadow:0 2px 20px rgba(0,0,0,.45)}
@@ -60,6 +62,7 @@ body.ad #stage{pointer-events:none}
 <body>
 <div id="bg"><div class="wrap"><div id="yt"></div></div></div>
 <div id="veil"></div>
+<canvas id="fx"></canvas>
 <pre id="logbox" class="hide" style="position:fixed;left:8px;bottom:60px;max-width:min(720px,95vw);max-height:60vh;overflow:auto;margin:0;padding:10px;background:rgba(0,0,0,.85);color:#9f9;font-size:11px;z-index:50;white-space:pre-wrap;border-radius:8px;pointer-events:none"></pre>
 
 <div id="stage">
@@ -77,6 +80,7 @@ body.ad #stage{pointer-events:none}
 
 <div id="toolbar">
   <button class="tb" data-p="pBg" title="背景(YouTube)">▶</button>
+  <button class="tb" data-p="pFx" title="エフェクト">✨</button>
   <button class="tb" data-p="pTimer" title="タイマー">⏱</button>
   <button class="tb" data-p="pSet" title="表示設定">⚙</button>
   <button class="tb" id="logBtn" title="診断ログ">🐞</button>
@@ -99,9 +103,22 @@ body.ad #stage{pointer-events:none}
   <div class="row"><label>ぼかし</label><input type="range" id="ytBlur" min="0" max="20"></div>
   <div class="row"><label>音量</label><input type="range" id="ytVol" min="0" max="100"></div>
   <div class="row"><label>背景の明るさ</label><select id="ytTone"><option value="dark">暗い（黒ベース）</option><option value="light">明るい（白ベース）</option></select></div>
+  <div class="row"><label>再生モード</label><select id="ytMode"><option value="both">映像＋音声</option><option value="audio">音声のみ（映像は非表示）</option><option value="video">映像のみ（無音）</option></select></div>
   <div class="row"><button class="btn ghost" id="ytStop">停止して背景を消す</button></div>
   <div class="hist" id="hist"></div>
   <p style="opacity:.6;font-size:12px">※ 埋め込み不可の動画は再生されません。</p>
+</div>
+
+<!-- エフェクト -->
+<div class="panel" id="pFx">
+  <h3>画面エフェクト</h3>
+  <div class="row"><label>種類</label><select id="fxSel">
+    <option value="none">なし</option><option value="rain">雨</option><option value="storm">嵐（雨＋雷）</option><option value="snow">雪</option>
+    <option value="sakura">桜</option><option value="stars">星空</option><option value="firefly">蛍</option><option value="fog">霧</option></select></div>
+  <div class="row"><label>量</label><input type="range" id="fxAmt" min="10" max="200"></div>
+  <div class="row"><label>天気に合わせる</label><input type="checkbox" id="fxAuto"></div>
+  <div class="row" style="opacity:.7" id="fxInfo"></div>
+  <p style="opacity:.6;font-size:12px">「天気に合わせる」をオンにすると、現在地の実際の天気（雨・雪・霧・雷）に応じて自動で切り替わります。晴れや曇りのときは何も出ません。</p>
 </div>
 
 <!-- タイマー -->
@@ -158,7 +175,7 @@ body.ad #stage{pointer-events:none}
 <script>
 const $=id=>document.getElementById(id);
 const DEF={font:"'Jost',sans-serif",size:100,weight:300,color:'#ffffff',sec:false,h12:false,cal:true,wx:true,tz:'auto',loc:'geo',wake:false,
-  ytUrl:'',ytOpacity:35,ytBlur:0,ytVol:40,ytTone:'dark',hist:[],po:{work:25,short:5,long:15,done:0,day:''}};
+  ytUrl:'',ytOpacity:35,ytBlur:0,ytVol:40,ytTone:'dark',ytMode:'both',fx:'none',fxAmt:50,fxAuto:false,hist:[],po:{work:25,short:5,long:15,done:0,day:''}};
 let S;
 try{S=Object.assign({},DEF,JSON.parse(localStorage.getItem('clockS')||'{}'))}catch(e){S={...DEF}}
 S.po=Object.assign({},DEF.po,S.po||{});
@@ -236,13 +253,61 @@ $('calTitle').onclick=()=>{cv=null;renderCal()};
 /* ---------- Weather ---------- */
 const WC=c=>c==0?'☀️':c<=2?'🌤️':c==3?'☁️':c<=48?'🌫️':c<=57?'🌦️':c<=67?'🌧️':c<=77?'❄️':c<=82?'🌧️':c<=86?'🌨️':'⛈️';
 async function weather(){
-  if(!S.wx){$('weather').textContent='';return}
+  if(!S.wx)$('weather').textContent='';
+  if(!S.wx&&!S.fxAuto)return;
   const go=async(lat,lon)=>{try{const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`);const j=await r.json();
-    $('weather').textContent=`${WC(j.current.weather_code)} ${Math.round(j.current.temperature_2m)}℃`}catch(e){$('weather').textContent=''}};
+    if(S.wx)$('weather').textContent=`${WC(j.current.weather_code)} ${Math.round(j.current.temperature_2m)}℃`;
+    wxCode=j.current.weather_code;wxLabel=`${WC(wxCode)} 現在の天気コード ${wxCode}`;fxCheck()}catch(e){if(S.wx)$('weather').textContent=''}};
   if(S.loc==='geo'&&navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>go(p.coords.latitude,p.coords.longitude),()=>go(35.68,139.76),{timeout:8000});
   else{const[a,b]=(S.loc==='geo'?'35.68,139.76':S.loc).split(',');go(a,b)}
 }
 setInterval(weather,30*60*1000);
+
+/* ---------- Effects ---------- */
+let wxCode=null,wxLabel='',fxKind='none',fxP=[],fxSig='',flash=0,fxTick=0;
+const fxCv=$('fx'),cx=fxCv.getContext('2d');
+const rnd=(a,b)=>a+Math.random()*(b-a);
+function fxResize(){const r=window.devicePixelRatio||1;fxCv.width=Math.round(innerWidth*r);fxCv.height=Math.round(innerHeight*r);cx.setTransform(r,0,0,r,0,0)}
+function wxKind(c){if(c==null)return'none';if(c>=95)return'storm';if((c>=51&&c<=67)||(c>=80&&c<=82))return'rain';if((c>=71&&c<=77)||c===85||c===86)return'snow';if(c===45||c===48)return'fog';return'none'}
+const curKind=()=>S.fxAuto?wxKind(wxCode):S.fx;
+function mk(kind,init){const W=innerWidth,H=innerHeight,y0=init?rnd(0,H):rnd(-60,-5);
+  switch(kind){
+    case'rain':case'storm':return{x:rnd(-100,W+100),y:y0,l:rnd(12,26),v:rnd(16,26)*(kind==='storm'?1.25:1),a:rnd(.18,.5)};
+    case'snow':return{x:rnd(0,W),y:y0,r:rnd(1,3.6),v:rnd(.6,1.6),ph:rnd(0,6.28),sw:rnd(.3,.9),a:rnd(.5,.95)};
+    case'sakura':return{x:rnd(0,W+200),y:y0,r:rnd(4,8),v:rnd(.8,1.8),ph:rnd(0,6.28),sw:rnd(.6,1.4),rot:rnd(0,6.28),vr:rnd(-.04,.04)};
+    case'stars':return{x:rnd(0,W),y:rnd(0,H),r:rnd(.5,1.6),ph:rnd(0,6.28),sp:rnd(.01,.04)};
+    case'firefly':return{x:rnd(0,W),y:rnd(H*.3,H),vx:rnd(-.4,.4),vy:rnd(-.3,.3),ph:rnd(0,6.28),r:rnd(1.5,3.2)};
+    case'fog':return{x:rnd(-300,W),y:rnd(H*.2,H),r:rnd(260,520),vx:rnd(.1,.35),a:rnd(.05,.1)};
+  }}
+function fxInit(){fxKind=curKind();const area=Math.max(.35,innerWidth*innerHeight/1e6);
+  const base={rain:260,storm:520,snow:130,sakura:45,stars:160,firefly:40,fog:7}[fxKind]||0;
+  fxP=Array.from({length:Math.round(base*area*S.fxAmt/50)},()=>mk(fxKind,true))}
+function fxCheck(){const sig=curKind()+'|'+S.fxAmt+'|'+innerWidth+'x'+innerHeight;if(sig!==fxSig){fxSig=sig;fxInit()}
+  const el=$('fxInfo');if(el)el.textContent=S.fxAuto?(wxCode==null?'天気を取得中…':wxLabel+' → '+({none:'エフェクトなし',rain:'雨',storm:'嵐',snow:'雪',fog:'霧'}[wxKind(wxCode)])):''}
+addEventListener('resize',()=>{fxResize();fxCheck()});
+function fxLoop(){requestAnimationFrame(fxLoop);if(document.hidden)return;
+  const W=innerWidth,H=innerHeight;cx.clearRect(0,0,W,H);if(fxKind==='none')return;
+  const lt=S.ytTone==='light';fxTick++;
+  if(fxKind==='rain'||fxKind==='storm'){
+    cx.lineWidth=1.2;const slant=.22;
+    for(const p of fxP){cx.strokeStyle=(lt?'rgba(50,80,130,':'rgba(200,220,255,')+p.a+')';cx.beginPath();cx.moveTo(p.x,p.y);cx.lineTo(p.x-p.l*slant,p.y-p.l);cx.stroke();
+      p.y+=p.v;p.x-=p.v*slant;if(p.y-p.l>H){Object.assign(p,mk(fxKind,false))}}
+    if(fxKind==='storm'){if(Math.random()<.004)flash=1;if(flash>.02){cx.fillStyle=`rgba(255,255,255,${flash*.35})`;cx.fillRect(0,0,W,H);flash*=.88}}
+  }else if(fxKind==='snow'){
+    for(const p of fxP){p.ph+=.02;p.x+=Math.sin(p.ph)*p.sw;p.y+=p.v;cx.fillStyle=(lt?'rgba(110,140,185,':'rgba(255,255,255,')+p.a+')';cx.beginPath();cx.arc(p.x,p.y,p.r,0,6.283);cx.fill();
+      if(p.y>H+5)Object.assign(p,mk('snow',false))}
+  }else if(fxKind==='sakura'){
+    for(const p of fxP){p.ph+=.018;p.rot+=p.vr;p.x-=p.v*.6+Math.sin(p.ph)*p.sw;p.y+=p.v;cx.save();cx.translate(p.x,p.y);cx.rotate(p.rot);cx.fillStyle='rgba(255,183,205,.85)';cx.beginPath();cx.ellipse(0,0,p.r,p.r*.55,0,0,6.283);cx.fill();cx.restore();
+      if(p.y>H+10||p.x<-20)Object.assign(p,mk('sakura',false))}
+  }else if(fxKind==='stars'){
+    for(const p of fxP){p.ph+=p.sp;const a=.35+.65*Math.abs(Math.sin(p.ph));cx.fillStyle=(lt?'rgba(80,90,130,':'rgba(255,255,240,')+a+')';cx.beginPath();cx.arc(p.x,p.y,p.r,0,6.283);cx.fill()}
+  }else if(fxKind==='firefly'){
+    for(const p of fxP){p.ph+=.03;p.x+=p.vx+Math.sin(p.ph*.7)*.3;p.y+=p.vy+Math.cos(p.ph*.5)*.3;if(p.x<-10)p.x=W+10;if(p.x>W+10)p.x=-10;if(p.y<-10)p.y=H+10;if(p.y>H+10)p.y=-10;
+      const a=.25+.75*Math.abs(Math.sin(p.ph));const g=cx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*6);g.addColorStop(0,`rgba(230,255,120,${a})`);g.addColorStop(1,'rgba(230,255,120,0)');cx.fillStyle=g;cx.beginPath();cx.arc(p.x,p.y,p.r*6,0,6.283);cx.fill()}
+  }else if(fxKind==='fog'){
+    for(const p of fxP){p.x+=p.vx;if(p.x-p.r>W)p.x=-p.r;const g=cx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r);const c=lt?'120,130,150':'230,235,245';g.addColorStop(0,`rgba(${c},${p.a*S.fxAmt/50})`);g.addColorStop(1,`rgba(${c},0)`);cx.fillStyle=g;cx.fillRect(p.x-p.r,p.y-p.r,p.r*2,p.r*2)}
+  }
+}
 
 /* ---------- YouTube background ---------- */
 let player=null,apiReady=false,pendingLoad=null;
@@ -266,7 +331,7 @@ function loadYT(url,auto){
   else vars.playlist=p.id;
   if(player){try{player.destroy()}catch(e){}$('bg').querySelector('.wrap').innerHTML='<div id="yt"></div>'}
   player=new YT.Player('yt',{videoId:p.list?undefined:p.id,playerVars:vars,events:{
-    onReady:e=>{dbg('ready (auto='+auto+')');e.target.setVolume(S.ytVol);e.target.mute();muted=true;wantSound=!auto;unmuteTried=false;e.target.playVideo();syncMini();$('mini').classList.remove('hide')},
+    onReady:e=>{dbg('ready (auto='+auto+')');e.target.setVolume(S.ytVol);e.target.mute();muted=true;wantSound=!auto&&S.ytMode!=='video';unmuteTried=false;if(S.ytMode==='video'){e.target.mute();muted=true}e.target.playVideo();syncMini();$('mini').classList.remove('hide')},
     onStateChange:e=>{
       if(e.data===YT.PlayerState.ENDED&&!p.list)e.target.playVideo();
       // 無音で再生が始まってから音を出す（音ありで始めるとブラウザに止められることがあるため）
@@ -328,13 +393,13 @@ $('ytStop').onclick=()=>{if(player){try{player.destroy()}catch(e){}player=null;$
 $('ytOpacity').oninput=e=>{S.ytOpacity=+e.target.value;$('ytOpacityV').textContent=S.ytOpacity+'%';applyBg();save()};
 $('ytBlur').oninput=e=>{S.ytBlur=+e.target.value;applyBg();save()};
 $('ytTone').onchange=e=>{S.ytTone=e.target.value;applyBg();save()};
-function setVol(v){S.ytVol=v;if(player&&player.setVolume){player.setVolume(v);if(v>0&&muted){player.unMute();muted=false}}$('ytVol').value=v;$('miniVol').value=v;save();syncMini()}
+function setVol(v){S.ytVol=v;if(player&&player.setVolume){player.setVolume(v);if(v>0&&muted&&S.ytMode!=='video'){player.unMute();muted=false}}$('ytVol').value=v;$('miniVol').value=v;save();syncMini()}
 $('ytVol').oninput=e=>setVol(+e.target.value);$('miniVol').oninput=e=>setVol(+e.target.value);
 $('playBtn').onclick=()=>{if(!player)return;if(player.getPlayerState()===1){userPaused=true;player.pauseVideo()}else{userPaused=false;player.playVideo()}setTimeout(syncMini,200)};
-$('muteBtn').onclick=()=>{if(!player)return;if(muted){player.unMute();muted=false}else{player.mute();muted=true}syncMini()};
+$('muteBtn').onclick=()=>{if(!player||S.ytMode==='video')return;if(muted){player.unMute();muted=false}else{player.mute();muted=true}syncMini()};
 $('nextBtn').onclick=()=>{if(player&&player.nextVideo)player.nextVideo()};
 // 自動再生は無音で始まるため、最初の操作で音を出す
-const firstGesture=()=>{if(player&&muted&&S.ytVol>0&&player.unMute){player.unMute();muted=false;syncMini()}document.removeEventListener('pointerdown',firstGesture)};
+const firstGesture=()=>{if(player&&muted&&S.ytVol>0&&S.ytMode!=='video'&&player.unMute){player.unMute();muted=false;syncMini()}document.removeEventListener('pointerdown',firstGesture)};
 document.addEventListener('pointerdown',firstGesture);
 
 /* ---------- Panels / UI ---------- */
@@ -359,12 +424,19 @@ function applySet(){
   $('sSec').checked=S.sec;$('s12').checked=S.h12;$('sCal').checked=S.cal;$('sWx').checked=S.wx;$('sTz').value=S.tz;$('sLoc').value=S.loc;$('sWake').checked=S.wake;
   $('ytUrl').value=S.ytUrl;$('ytOpacity').value=S.ytOpacity;$('ytOpacityV').textContent=S.ytOpacity+'%';$('ytBlur').value=S.ytBlur;$('ytVol').value=S.ytVol;$('ytTone').value=S.ytTone;
   if(S.tz!=='auto'){$('poworld').textContent='タイムゾーン: '+S.tz}else $('poworld').textContent='';
+  $('ytMode').value=S.ytMode;$('fxSel').value=S.fx;$('fxAmt').value=S.fxAmt;$('fxAuto').checked=S.fxAuto;
+  document.body.classList.toggle('m-audio',S.ytMode==='audio');
+  fxCheck();
 }
 const bind=(id,k,fn,ev='oninput')=>{$(id)[ev]=e=>{S[k]=fn?fn(e.target):e.target.value;save();applySet()}};
 bind('sFont','font',null,'onchange');bind('sSize','size',t=>+t.value);bind('sWeight','weight',t=>+t.value);bind('sColor','color');
 bind('sSec','sec',t=>t.checked,'onchange');bind('s12','h12',t=>t.checked,'onchange');bind('sCal','cal',t=>t.checked,'onchange');
 bind('sTz','tz',null,'onchange');
 $('sWx').onchange=e=>{S.wx=e.target.checked;save();applySet();weather()};
+bind('fxSel','fx',null,'onchange');bind('fxAmt','fxAmt',t=>+t.value);
+$('fxAuto').onchange=e=>{S.fxAuto=e.target.checked;save();applySet();weather()};
+$('ytMode').onchange=e=>{S.ytMode=e.target.value;save();applySet();
+  if(player&&player.mute){if(S.ytMode==='video'){player.mute();muted=true}else if(muted&&S.ytVol>0){try{player.unMute();muted=false}catch(_){}}syncMini()}};
 $('sLoc').onchange=e=>{S.loc=e.target.value;save();weather()};
 $('sColorAuto').onclick=()=>{S.color='#ffffff';save();applySet()};
 let wl=null;async function wakeLock(){try{if(S.wake&&'wakeLock' in navigator)wl=await navigator.wakeLock.request('screen');else if(wl){wl.release();wl=null}}catch(e){}}
@@ -418,7 +490,7 @@ setInterval(()=>{
 },200);
 
 /* ---------- Init ---------- */
-renderHist();renderPoToday();poRender();cdRender();applySet();weather();wakeLock();
+fxResize();renderHist();renderPoToday();poRender();cdRender();applySet();weather();wakeLock();fxLoop();
 </script>
 </body>
 </html>
