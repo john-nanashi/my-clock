@@ -16,7 +16,7 @@ html,body{margin:0;height:100%;background:#000;color:var(--fg);overflow:hidden;f
 body.ad #bg .wrap,body.ad #bg iframe,body.ad #yt{pointer-events:auto}
 body.ad #stage{pointer-events:none}
 body.m-audio:not(.ad) #bg .wrap{opacity:0}
-#fx{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
+#fx,#spec{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
 #veil{position:fixed;inset:0;background:#000;pointer-events:none}
 #stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;gap:4vw;padding:2vw}
 #clockbox{text-align:center;text-shadow:0 2px 20px rgba(0,0,0,.45)}
@@ -63,6 +63,7 @@ body.m-audio:not(.ad) #bg .wrap{opacity:0}
 <div id="bg"><div class="wrap"><div id="yt"></div></div></div>
 <div id="veil"></div>
 <canvas id="fx"></canvas>
+<canvas id="spec"></canvas>
 <pre id="logbox" class="hide" style="position:fixed;left:8px;bottom:60px;max-width:min(720px,95vw);max-height:60vh;overflow:auto;margin:0;padding:10px;background:rgba(0,0,0,.85);color:#9f9;font-size:11px;z-index:50;white-space:pre-wrap;border-radius:8px;pointer-events:none"></pre>
 
 <div id="stage">
@@ -118,6 +119,11 @@ body.m-audio:not(.ad) #bg .wrap{opacity:0}
   <div class="row"><label>量</label><input type="range" id="fxAmt" min="10" max="200"></div>
   <div class="row"><label>天気に合わせる</label><input type="checkbox" id="fxAuto"></div>
   <div class="row" style="opacity:.7" id="fxInfo"></div>
+  <hr style="border-color:rgba(255,255,255,.15)">
+  <h3>オーディオスペクトラム</h3>
+  <div class="row"><label>表示</label><select id="specSel"><option value="none">なし</option><option value="bar">バー（画面下）</option><option value="circle">円形（時計のまわり）</option></select></div>
+  <div class="row"><label>大きさ</label><input type="range" id="specAmt" min="20" max="150"></div>
+  <p style="opacity:.6;font-size:12px">YouTubeの音そのものには反応しない疑似表示です。再生中だけ音楽っぽく動き、停止中は静かになります。</p>
   <p style="opacity:.6;font-size:12px">「天気に合わせる」をオンにすると、現在地の実際の天気（雨・雪・霧・雷）に応じて自動で切り替わります。晴れや曇りのときは何も出ません。</p>
 </div>
 
@@ -175,7 +181,7 @@ body.m-audio:not(.ad) #bg .wrap{opacity:0}
 <script>
 const $=id=>document.getElementById(id);
 const DEF={font:"'Jost',sans-serif",size:100,weight:300,color:'#ffffff',sec:false,h12:false,cal:true,wx:true,tz:'auto',loc:'geo',wake:false,
-  ytUrl:'',ytOpacity:35,ytBlur:0,ytVol:40,ytTone:'dark',ytMode:'both',fx:'none',fxAmt:50,fxAuto:false,hist:[],po:{work:25,short:5,long:15,done:0,day:''}};
+  ytUrl:'',ytOpacity:35,ytBlur:0,ytVol:40,ytTone:'dark',ytMode:'both',fx:'none',fxAmt:50,fxAuto:false,spec:'none',specAmt:60,hist:[],po:{work:25,short:5,long:15,done:0,day:''}};
 let S;
 try{S=Object.assign({},DEF,JSON.parse(localStorage.getItem('clockS')||'{}'))}catch(e){S={...DEF}}
 S.po=Object.assign({},DEF.po,S.po||{});
@@ -263,10 +269,43 @@ async function weather(){
 }
 setInterval(weather,30*60*1000);
 
+/* ---------- Spectrum (疑似) ---------- */
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const spCv=$('spec'),sx=spCv.getContext('2d');
+const NB=64;let spV=new Float32Array(NB),spBeat=0,spNext=0,spT=0,spCenter={x:0,y:0};
+const spPh=Array.from({length:NB},()=>({a:rnd(.8,3.2),b:rnd(.5,2.4),p:rnd(0,6.28),q:rnd(0,6.28)}));
+function spResize(){const r=window.devicePixelRatio||1;spCv.width=Math.round(innerWidth*r);spCv.height=Math.round(innerHeight*r);sx.setTransform(r,0,0,r,0,0)}
+function fgRGB(){const eff=S.ytTone==='light'&&S.color==='#ffffff'?'#111111':S.color;const c=parseInt(eff.slice(1),16);return[(c>>16)&255,(c>>8)&255,c&255]}
+function isPlaying(){try{return !!player&&player.getPlayerState&&player.getPlayerState()===1&&S.ytMode!=='video'}catch(_){return false}}
+function specLoop(){requestAnimationFrame(specLoop);if(document.hidden)return;
+  const W=innerWidth,H=innerHeight;sx.clearRect(0,0,W,H);if(S.spec==='none')return;
+  const on=isPlaying();spT+=.016;const now=performance.now();
+  if(on&&now>spNext){spBeat=1;spNext=now+rnd(380,620)}spBeat*=.9;
+  for(let i=0;i<NB;i++){const k=i/NB,p=spPh[i];
+    let tgt=0.05;
+    if(on){const n=.5+.5*Math.sin(spT*p.a*2+p.p)*Math.sin(spT*p.b*2.3+p.q);
+      const tilt=Math.pow(1-k,.9)*.85+.15;
+      tgt=Math.min(1,tilt*(.25+.75*n)*(.55+.7*spBeat*(1-k*.6))+Math.random()*.04)}
+    spV[i]+=(tgt-spV[i])*(tgt>spV[i]?.45:.12)}
+  const[r,g,b]=fgRGB(),amt=S.specAmt/60;
+  if(S.spec==='bar'){
+    const bw=W/NB,maxH=H*.28*amt;
+    for(let i=0;i<NB;i++){const h=Math.max(2,spV[i]*maxH);const x=i*bw+bw*.15;
+      const gr=sx.createLinearGradient(0,H-h,0,H);gr.addColorStop(0,`rgba(${r},${g},${b},.55)`);gr.addColorStop(1,`rgba(${r},${g},${b},.12)`);
+      sx.fillStyle=gr;sx.beginPath();sx.roundRect?sx.roundRect(x,H-h,bw*.7,h,3):sx.rect(x,H-h,bw*.7,h);sx.fill()}
+  }else{
+    if(!(spT*60%30<1)||!spCenter.x){const rc=$('clockbox').getBoundingClientRect();spCenter={x:rc.left+rc.width/2,y:rc.top+rc.height/2}}
+    const R=Math.min(W,H)*.34,len=Math.min(W,H)*.16*amt,n=NB*2;
+    sx.lineCap='round';sx.lineWidth=Math.max(2,Math.min(W,H)*.006);
+    for(let i=0;i<n;i++){const idx=i<NB?i:n-1-i;const a=i/n*Math.PI*2-Math.PI/2;const v=spV[idx];const l=Math.max(2,v*len);
+      sx.strokeStyle=`rgba(${r},${g},${b},${.2+.5*v})`;sx.beginPath();
+      sx.moveTo(spCenter.x+Math.cos(a)*R,spCenter.y+Math.sin(a)*R);sx.lineTo(spCenter.x+Math.cos(a)*(R+l),spCenter.y+Math.sin(a)*(R+l));sx.stroke()}
+  }
+}
+
 /* ---------- Effects ---------- */
 let wxCode=null,wxLabel='',fxKind='none',fxP=[],fxSig='',flash=0,fxTick=0;
 const fxCv=$('fx'),cx=fxCv.getContext('2d');
-const rnd=(a,b)=>a+Math.random()*(b-a);
 function fxResize(){const r=window.devicePixelRatio||1;fxCv.width=Math.round(innerWidth*r);fxCv.height=Math.round(innerHeight*r);cx.setTransform(r,0,0,r,0,0)}
 function wxKind(c){if(c==null)return'none';if(c>=95)return'storm';if((c>=51&&c<=67)||(c>=80&&c<=82))return'rain';if((c>=71&&c<=77)||c===85||c===86)return'snow';if(c===45||c===48)return'fog';return'none'}
 const curKind=()=>S.fxAuto?wxKind(wxCode):S.fx;
@@ -284,7 +323,7 @@ function fxInit(){fxKind=curKind();const area=Math.max(.35,innerWidth*innerHeigh
   fxP=Array.from({length:Math.round(base*area*S.fxAmt/50)},()=>mk(fxKind,true))}
 function fxCheck(){const sig=curKind()+'|'+S.fxAmt+'|'+innerWidth+'x'+innerHeight;if(sig!==fxSig){fxSig=sig;fxInit()}
   const el=$('fxInfo');if(el)el.textContent=S.fxAuto?(wxCode==null?'天気を取得中…':wxLabel+' → '+({none:'エフェクトなし',rain:'雨',storm:'嵐',snow:'雪',fog:'霧'}[wxKind(wxCode)])):''}
-addEventListener('resize',()=>{fxResize();fxCheck()});
+addEventListener('resize',()=>{fxResize();spResize();fxCheck()});
 function fxLoop(){requestAnimationFrame(fxLoop);if(document.hidden)return;
   const W=innerWidth,H=innerHeight;cx.clearRect(0,0,W,H);if(fxKind==='none')return;
   const lt=S.ytTone==='light';fxTick++;
@@ -424,6 +463,7 @@ function applySet(){
   $('sSec').checked=S.sec;$('s12').checked=S.h12;$('sCal').checked=S.cal;$('sWx').checked=S.wx;$('sTz').value=S.tz;$('sLoc').value=S.loc;$('sWake').checked=S.wake;
   $('ytUrl').value=S.ytUrl;$('ytOpacity').value=S.ytOpacity;$('ytOpacityV').textContent=S.ytOpacity+'%';$('ytBlur').value=S.ytBlur;$('ytVol').value=S.ytVol;$('ytTone').value=S.ytTone;
   if(S.tz!=='auto'){$('poworld').textContent='タイムゾーン: '+S.tz}else $('poworld').textContent='';
+  $('specSel').value=S.spec;$('specAmt').value=S.specAmt;
   $('ytMode').value=S.ytMode;$('fxSel').value=S.fx;$('fxAmt').value=S.fxAmt;$('fxAuto').checked=S.fxAuto;
   document.body.classList.toggle('m-audio',S.ytMode==='audio');
   fxCheck();
@@ -433,6 +473,7 @@ bind('sFont','font',null,'onchange');bind('sSize','size',t=>+t.value);bind('sWei
 bind('sSec','sec',t=>t.checked,'onchange');bind('s12','h12',t=>t.checked,'onchange');bind('sCal','cal',t=>t.checked,'onchange');
 bind('sTz','tz',null,'onchange');
 $('sWx').onchange=e=>{S.wx=e.target.checked;save();applySet();weather()};
+bind('specSel','spec',null,'onchange');bind('specAmt','specAmt',t=>+t.value);
 bind('fxSel','fx',null,'onchange');bind('fxAmt','fxAmt',t=>+t.value);
 $('fxAuto').onchange=e=>{S.fxAuto=e.target.checked;save();applySet();weather()};
 $('ytMode').onchange=e=>{S.ytMode=e.target.value;save();applySet();
@@ -490,7 +531,7 @@ setInterval(()=>{
 },200);
 
 /* ---------- Init ---------- */
-fxResize();renderHist();renderPoToday();poRender();cdRender();applySet();weather();wakeLock();fxLoop();
+fxResize();spResize();renderHist();renderPoToday();poRender();cdRender();applySet();weather();wakeLock();fxLoop();specLoop();
 </script>
 </body>
 </html>
