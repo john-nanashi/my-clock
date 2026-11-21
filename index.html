@@ -118,6 +118,7 @@ body.m-audio:not(.ad) #bg .wrap{opacity:0}
   <div class="row"><label>音量</label><input type="range" id="ytVol" min="0" max="100"></div>
   <div class="row"><label>背景の明るさ</label><select id="ytTone"><option value="dark">暗い（黒ベース）</option><option value="light">明るい（白ベース）</option></select></div>
   <div class="row"><label>再生モード</label><select id="ytMode"><option value="both">映像＋音声</option><option value="audio">音声のみ（映像は非表示）</option><option value="video">映像のみ（無音）</option></select></div>
+  <div class="row"><label>強化モード</label><input type="checkbox" id="ytNc"><span style="opacity:.7;font-size:12px">cookieなしで再生（エラー150対策）</span></div>
   <div class="row"><button class="btn ghost" id="ytStop">停止して背景を消す</button></div>
   <div class="hist" id="hist"></div>
   <p style="opacity:.6;font-size:12px">※ 埋め込み不可の動画は再生されません。</p>
@@ -442,7 +443,11 @@ function loadYT(url,auto){
   if(p.list){vars.listType='playlist';vars.list=p.list}
   else vars.playlist=p.id;
   if(player){try{player.destroy()}catch(e){}$('bg').querySelector('.wrap').innerHTML='<div id="yt"></div>'}
-  player=new YT.Player('yt',{videoId:p.list?undefined:p.id,playerVars:vars,events:{
+  // 埋め込みエラー(101/150)が出た動画は、cookieなしの「プライバシー強化モード」で自動的にやり直す
+  const key=p.id||p.list,usedNc=!!S.ytNoCookie||(S.ncVids||[]).includes(key);
+  const ytOpt={videoId:p.list?undefined:p.id,playerVars:vars};
+  if(usedNc)ytOpt.host='https://www.youtube-nocookie.com';
+  ytOpt.events={
     onReady:e=>{dbg('ready (auto='+auto+')');e.target.setVolume(S.ytVol);e.target.mute();muted=true;wantSound=!auto&&S.ytMode!=='video';unmuteTried=false;if(S.ytMode==='video'){e.target.mute();muted=true}e.target.playVideo();syncMini();$('mini').classList.remove('hide')},
     onStateChange:e=>{
       if(e.data===YT.PlayerState.ENDED&&!p.list)e.target.playVideo();
@@ -454,8 +459,12 @@ function loadYT(url,auto){
       dbg('state '+e.data);syncMini()},
     onApiChange:()=>dbg('apiChange'),
     onAutoplayBlocked:()=>{dbg('autoplayBlocked');$('holname').textContent='自動再生がブロックされました。画面をクリックすると再生します';const f=()=>{try{player.playVideo()}catch(_){}document.removeEventListener('pointerdown',f)};document.addEventListener('pointerdown',f)},
-    onError:e=>{console.warn('YT error',e.data);dbg('error '+e.data);const msg={2:'URLが正しくありません',5:'プレーヤーのエラーです',100:'動画が見つからない／非公開です',101:'この動画は埋め込み再生が許可されていません',150:'この動画は埋め込み再生が許可されていません（権利者の設定）'}[e.data]||'再生できません';
-      $('holname').textContent='⚠ '+msg+'（エラー'+e.data+'）。別の動画をお試しください'}}});
+    onError:e=>{console.warn('YT error',e.data);dbg('error '+e.data+(usedNc?' (nocookie)':''));
+      if((e.data===150||e.data===101)&&!usedNc){S.ncVids=[key,...(S.ncVids||[]).filter(x=>x!==key)].slice(0,50);save();ytErr=false;
+        $('holname').textContent='埋め込みエラーのため、プライバシー強化モードでやり直しています…';setTimeout(()=>loadYT(url,auto),400);return}
+      const msg={2:'URLが正しくありません',5:'プレーヤーのエラーです',100:'動画が見つからない／非公開です',101:'この動画は埋め込み再生が許可されていません',150:'この動画は埋め込み再生が許可されていません（権利者の設定）'}[e.data]||'再生できません';
+      $('holname').textContent='⚠ '+msg+'（エラー'+e.data+'）。別の動画をお試しください'}};
+  player=new YT.Player('yt',ytOpt);
   pushHist(url);applyBg();
 }
 let muted=false,userPaused=false,resumeLog=[],wantSound=false,unmuteTried=false,ytErr=false;
@@ -556,6 +565,7 @@ function applySet(){
   $('sSec').checked=S.sec;$('s12').checked=S.h12;$('sCal').checked=S.cal;$('sWx').checked=S.wx;$('sTz').value=S.tz;$('sLoc').value=S.loc;$('sWake').checked=S.wake;
   $('ytUrl').value=S.ytUrl;$('ytOpacity').value=S.ytOpacity;$('ytOpacityV').textContent=S.ytOpacity+'%';$('ytBlur').value=S.ytBlur;$('ytVol').value=S.ytVol;$('ytTone').value=S.ytTone;
   if(S.tz!=='auto'){$('poworld').textContent='タイムゾーン: '+S.tz}else $('poworld').textContent='';
+  $('ytNc').checked=!!S.ytNoCookie;
   $('specSel').value=S.spec;$('specAmt').value=S.specAmt;$('specColSel').value=S.specColor;$('specCustom').value=S.specCustom;$('specCustom').style.display=S.specColor==='custom'?'':'none';
   $('ytMode').value=S.ytMode;$('fxSel').value=S.fx;$('fxAmt').value=S.fxAmt;$('fxAuto').checked=S.fxAuto;
   document.body.classList.toggle('m-audio',S.ytMode==='audio');
@@ -566,6 +576,7 @@ bind('sFont','font',null,'onchange');bind('sSize','size',t=>+t.value);bind('sWei
 bind('sSec','sec',t=>t.checked,'onchange');bind('s12','h12',t=>t.checked,'onchange');bind('sCal','cal',t=>t.checked,'onchange');
 bind('sTz','tz',null,'onchange');
 $('sWx').onchange=e=>{S.wx=e.target.checked;save();applySet();weather()};
+$('ytNc').onchange=e=>{S.ytNoCookie=e.target.checked;save();if(S.ytUrl&&player)loadYT(S.ytUrl,false)};
 bind('specSel','spec',null,'onchange');bind('specColSel','specColor',null,'onchange');bind('specCustom','specCustom');bind('specAmt','specAmt',t=>+t.value);
 bind('fxSel','fx',null,'onchange');bind('fxAmt','fxAmt',t=>+t.value);
 $('fxAuto').onchange=e=>{S.fxAuto=e.target.checked;save();applySet();weather()};
